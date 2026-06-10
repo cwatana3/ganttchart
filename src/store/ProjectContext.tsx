@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState, useCallback, type ReactNode } from 'react';
-import type { Project, ProjectAction, Task } from '../types';
+import type { Project, ProjectAction, Task, Calendar } from '../types';
 import { createDefaultProject } from '../types';
 import {
   getFlattenedTasks,
@@ -8,7 +8,8 @@ import {
   canIndent,
   canOutdent,
 } from '../utils/taskTree';
-import { addWorkingDays, fromDate } from '../utils/calendar';
+import { addWorkingDays, fromDate, toDate, countWorkingDays } from '../utils/calendar';
+import { addDays } from 'date-fns';
 
 function generateId(): string {
   return crypto.randomUUID();
@@ -44,7 +45,7 @@ async function loadFromIndexedDB(): Promise<Project | null> {
   }
 }
 
-function projectReducer(state: Project, action: ProjectAction): Project {
+function rawProjectReducer(state: Project, action: ProjectAction): Project {
   switch (action.type) {
     case 'LOAD_PROJECT':
       return action.project;
@@ -124,7 +125,39 @@ function projectReducer(state: Project, action: ProjectAction): Project {
         }
       }
       collectChildren(action.id);
-      return { ...state, tasks: state.tasks.filter(t => !idsToDelete.has(t.id)) };
+      const remainingTasks = state.tasks.filter(t => !idsToDelete.has(t.id)).map(t => {
+        if (t.dependencies && t.dependencies.some(d => idsToDelete.has(d))) {
+          return {
+            ...t,
+            dependencies: t.dependencies.filter(d => !idsToDelete.has(d)),
+          };
+        }
+        return t;
+      });
+      return { ...state, tasks: remainingTasks };
+    }
+
+    case 'DELETE_TASKS': {
+      const idsToDelete = new Set<string>(action.ids);
+      function collectChildren(parentId: string) {
+        for (const child of getChildren(parentId, state.tasks)) {
+          idsToDelete.add(child.id);
+          collectChildren(child.id);
+        }
+      }
+      for (const id of action.ids) {
+        collectChildren(id);
+      }
+      const remainingTasks = state.tasks.filter(t => !idsToDelete.has(t.id)).map(t => {
+        if (t.dependencies && t.dependencies.some(d => idsToDelete.has(d))) {
+          return {
+            ...t,
+            dependencies: t.dependencies.filter(d => !idsToDelete.has(d)),
+          };
+        }
+        return t;
+      });
+      return { ...state, tasks: remainingTasks };
     }
 
     case 'UPDATE_TASK': {
@@ -139,9 +172,28 @@ function projectReducer(state: Project, action: ProjectAction): Project {
           updated.endDate = addWorkingDays(updated.startDate, updated.duration, state.calendar);
         } else if (action.changes.startDate !== undefined && !action.changes.endDate) {
           updated.endDate = addWorkingDays(updated.startDate, updated.duration, state.calendar);
+        } else if (action.changes.endDate !== undefined && action.changes.startDate === undefined) {
+          updated.duration = countWorkingDays(updated.startDate, updated.endDate, state.calendar);
         }
 
         return updated;
+      });
+      return { ...state, tasks };
+    }
+
+    case 'SHIFT_TASKS': {
+      const idsSet = new Set(action.ids);
+      const tasks = state.tasks.map(t => {
+        if (!idsSet.has(t.id)) return t;
+        const start = toDate(t.startDate);
+        const end = toDate(t.endDate);
+        const newStart = fromDate(addDays(start, action.dayOffset));
+        const newEnd = fromDate(addDays(end, action.dayOffset));
+        return {
+          ...t,
+          startDate: newStart,
+          endDate: newEnd,
+        };
       });
       return { ...state, tasks };
     }
@@ -244,6 +296,93 @@ function projectReducer(state: Project, action: ProjectAction): Project {
       };
     }
 
+    case 'REORDER_TASKS': {
+      const selectedIds = action.ids;
+      if (selectedIds.length === 0) return state;
+      if (selectedIds.includes(action.targetId)) return state;
+
+      // Collect all descendants of selected tasks
+      const idsToMove = new Set<string>();
+      for (const id of selectedIds) {
+        idsToMove.add(id);
+        for (const desc of getDescendants(id, state.tasks)) {
+          idsToMove.add(desc.id);
+        }
+      }
+
+      // If target task is one of the tasks to move (or their descendants), invalid operation.
+      if (idsToMove.has(action.targetId)) return state;
+
+      const targetTask = state.tasks.find(t => t.id === action.targetId);
+      if (!targetTask) return state;
+
+      let newParentId = targetTask.parentId;
+      if (action.position === 'inside') {
+        newParentId = targetTask.id;
+      } else {
+        newParentId = targetTask.parentId;
+      }
+
+      // Root dragged tasks: those in selectedIds whose parent is not in selectedIds
+      const rootDraggedIds = new Set<string>();
+      for (const id of selectedIds) {
+        let isRoot = true;
+        const task = state.tasks.find(t => t.id === id);
+        if (task) {
+          let curr = task.parentId;
+          while (curr) {
+            if (selectedIds.includes(curr)) {
+              isRoot = false;
+              break;
+            }
+            const parentTask = state.tasks.find(t => t.id === curr);
+            curr = parentTask ? parentTask.parentId : null;
+          }
+        }
+        if (isRoot) {
+          rootDraggedIds.add(id);
+        }
+      }
+
+      // Update parentId of root dragged tasks and collapse state of target if inside
+      const updatedTasks = state.tasks.map(t => {
+        if (rootDraggedIds.has(t.id)) {
+          return { ...t, parentId: newParentId };
+        }
+        if (t.id === action.targetId && action.position === 'inside') {
+          return { ...t, collapsed: false };
+        }
+        return t;
+      });
+
+      const toMove = updatedTasks.filter(t => idsToMove.has(t.id));
+      const rest = updatedTasks.filter(t => !idsToMove.has(t.id));
+
+      const targetIdx = rest.findIndex(t => t.id === action.targetId);
+      if (targetIdx < 0) return state;
+
+      let insertAt: number;
+      if (action.position === 'before') {
+        insertAt = targetIdx;
+      } else {
+        const targetDescendants = getDescendants(action.targetId, rest);
+        const lastDescId = targetDescendants.length > 0 
+          ? targetDescendants[targetDescendants.length - 1].id 
+          : action.targetId;
+        const lastDescIdx = rest.findIndex(t => t.id === lastDescId);
+        insertAt = lastDescIdx + 1;
+      }
+
+      return {
+        ...state,
+        tasks: [
+          ...rest.slice(0, insertAt),
+          ...toMove,
+          ...rest.slice(insertAt),
+        ],
+      };
+    }
+
     case 'PASTE_TASKS': {
       const tasks = [...state.tasks];
       if (action.afterId) {
@@ -270,6 +409,76 @@ function projectReducer(state: Project, action: ProjectAction): Project {
     default:
       return state;
   }
+}
+
+function updateParentTasks(tasks: Task[], calendar: Calendar): Task[] {
+  const parentIds = new Set(tasks.map(t => t.parentId).filter(Boolean) as string[]);
+  
+  if (parentIds.size === 0) return tasks;
+
+  const memo = new Map<string, { startDate: string; endDate: string; duration: number }>();
+
+  function resolve(parentId: string): { startDate: string; endDate: string; duration: number } {
+    if (memo.has(parentId)) return memo.get(parentId)!;
+
+    const children = tasks.filter(t => t.parentId === parentId);
+    let earliestStart = '';
+    let latestEnd = '';
+
+    for (const child of children) {
+      let start = child.startDate;
+      let end = child.endDate;
+
+      if (parentIds.has(child.id)) {
+        const resolvedChild = resolve(child.id);
+        start = resolvedChild.startDate;
+        end = resolvedChild.endDate;
+      }
+
+      if (!earliestStart || start < earliestStart) earliestStart = start;
+      if (!latestEnd || end > latestEnd) latestEnd = end;
+    }
+
+    const duration = earliestStart && latestEnd ? countWorkingDays(earliestStart, latestEnd, calendar) : 0;
+    const res = { startDate: earliestStart, endDate: latestEnd, duration };
+    memo.set(parentId, res);
+    return res;
+  }
+
+  for (const pId of parentIds) {
+    resolve(pId);
+  }
+
+  return tasks.map(t => {
+    if (parentIds.has(t.id)) {
+      const resolved = memo.get(t.id);
+      if (resolved) {
+        if (
+          t.startDate === resolved.startDate &&
+          t.endDate === resolved.endDate &&
+          t.duration === resolved.duration
+        ) {
+          return t;
+        }
+        return {
+          ...t,
+          startDate: resolved.startDate,
+          endDate: resolved.endDate,
+          duration: resolved.duration,
+        };
+      }
+    }
+    return t;
+  });
+}
+
+function projectReducer(state: Project, action: ProjectAction): Project {
+  const nextState = rawProjectReducer(state, action);
+  if (nextState === state) return state;
+  return {
+    ...nextState,
+    tasks: updateParentTasks(nextState.tasks, nextState.calendar),
+  };
 }
 
 function findLastIndex(tasks: Task[], taskId: string): number {
@@ -331,6 +540,8 @@ interface ClipboardContent {
 interface ProjectContextValue {
   project: Project;
   dispatch: React.Dispatch<ProjectAction>;
+  selectedTaskIds: string[];
+  setSelectedTaskIds: React.Dispatch<React.SetStateAction<string[]>>;
   selectedTaskId: string | null;
   setSelectedTaskId: (id: string | null) => void;
   viewMode: 'day' | 'week' | 'month';
@@ -349,7 +560,11 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const [history, setHistory] = useState<{ past: Project[]; present: Project }>(() => {
     return { past: [], present: createDefaultProject() };
   });
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
+  const selectedTaskId = selectedTaskIds.length > 0 ? selectedTaskIds[selectedTaskIds.length - 1] : null;
+  const setSelectedTaskId = useCallback((id: string | null) => {
+    setSelectedTaskIds(id ? [id] : []);
+  }, []);
   const [viewMode, setViewMode] = useState<'day' | 'week' | 'month'>('day');
   const [clipboard, setClipboard] = useState<ClipboardContent | null>(null);
   const loaded = useRef(false);
@@ -490,6 +705,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       value={{
         project,
         dispatch,
+        selectedTaskIds,
+        setSelectedTaskIds,
         selectedTaskId,
         setSelectedTaskId,
         viewMode,

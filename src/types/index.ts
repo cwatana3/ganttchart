@@ -14,6 +14,7 @@ export interface Task {
   progress: number;
   collapsed: boolean;
   assignee: string;
+  dependencies?: string[];
 }
 
 export interface Project {
@@ -28,11 +29,14 @@ export type ProjectAction =
   | { type: 'SET_CALENDAR'; calendar: Calendar }
   | { type: 'ADD_TASK'; parentId: string | null; afterId?: string }
   | { type: 'DELETE_TASK'; id: string }
+  | { type: 'DELETE_TASKS'; ids: string[] }
   | { type: 'UPDATE_TASK'; id: string; changes: Partial<Task> }
   | { type: 'INDENT_TASK'; id: string }
   | { type: 'OUTDENT_TASK'; id: string }
   | { type: 'MOVE_TASK'; id: string; direction: 'up' | 'down' }
   | { type: 'REORDER_TASK'; id: string; targetId: string; position: 'before' | 'after' | 'inside' }
+  | { type: 'REORDER_TASKS'; ids: string[]; targetId: string; position: 'before' | 'after' | 'inside' }
+  | { type: 'SHIFT_TASKS'; ids: string[]; dayOffset: number }
   | { type: 'PASTE_TASKS'; tasksToInsert: Task[]; afterId: string | null }
   | { type: 'TOGGLE_COLLAPSE'; id: string };
 

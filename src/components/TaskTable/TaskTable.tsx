@@ -13,6 +13,7 @@ interface ColWidths {
   startDate: number;
   endDate: number;
   assignee: number;
+  dependencies: number;
 }
 
 function loadManualWidths(): Partial<ColWidths> {
@@ -30,72 +31,95 @@ function saveManualWidths(widths: Partial<ColWidths>): void {
 }
 
 let measureEl: HTMLSpanElement | null = null;
-function measureTextWidth(text: string, fontSize: number): number {
+function measureTextWidth(text: string, fontSize: number, fontFamily: string = 'var(--font-body)', fontWeight: string = 'normal'): number {
   if (!measureEl) {
     measureEl = document.createElement('span');
     measureEl.style.position = 'absolute';
     measureEl.style.visibility = 'hidden';
     measureEl.style.whiteSpace = 'nowrap';
-    measureEl.style.fontFamily = 'system-ui, -apple-system, sans-serif';
     document.body.appendChild(measureEl);
   }
   measureEl.style.fontSize = `${fontSize}px`;
+  measureEl.style.fontFamily = fontFamily;
+  measureEl.style.fontWeight = fontWeight;
   measureEl.textContent = text;
   return measureEl.getBoundingClientRect().width;
 }
 
 export function TaskTable() {
-  const { project, dispatch, selectedTaskId, setSelectedTaskId } = useProject();
-  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const { project, dispatch, selectedTaskIds, setSelectedTaskIds } = useProject();
+  const [draggedIds, setDraggedIds] = useState<string[]>([]);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const [dropPosition, setDropPosition] = useState<'before' | 'after' | 'inside'>('after');
   const [manualWidths, setManualWidths] = useState<Partial<ColWidths>>(loadManualWidths);
   const [resizing, setResizing] = useState<string | null>(null);
+  const [lastClickedId, setLastClickedId] = useState<string | null>(null);
   const resizeStartXRef = useRef(0);
   const resizeStartWidthRef = useRef(0);
   const tableRef = useRef<HTMLTableElement>(null);
   const visibleTasks = getVisibleTasks(project.tasks);
 
-  // Auto-calculate column widths based on content
   const effectiveColWidths = useMemo((): ColWidths => {
     // 1. Name column auto-width
-    let autoName = measureTextWidth('タスク名', 11);
+    let autoName = measureTextWidth('タスク名', 11.5, 'var(--font-header)', '700');
     for (const task of visibleTasks) {
-      const indent = '  '.repeat(getDepth(task.id, project.tasks));
-      const prefix = task.isMilestone ? '◆ ' : indent + (indent ? '├ ' : '');
-      const text = prefix + task.name;
-      autoName = Math.max(autoName, measureTextWidth(text, 13));
+      const depth = getDepth(task.id, project.tasks);
+      const hasChildren = project.tasks.some(t => t.parentId === task.id);
+      
+      const nameW = measureTextWidth(task.name, 13, 'var(--font-body)', 'normal');
+      const indentW = depth * 16;
+      const toggleW = hasChildren ? 24 : 18;
+      const milestoneW = task.isMilestone ? 24 : 0;
+      
+      const totalW = nameW + indentW + toggleW + milestoneW;
+      autoName = Math.max(autoName, totalW);
     }
-    autoName = Math.min(500, Math.max(120, autoName + 24));
+    autoName = Math.min(500, Math.max(120, autoName + 24 + 6)); // padding (24) + buffer (6)
 
     // 2. Duration column auto-width
-    let autoDuration = measureTextWidth('期間', 11);
+    let autoDuration = measureTextWidth('期間', 11.5, 'var(--font-header)', '700');
     for (const task of visibleTasks) {
       const text = `${task.duration}日`;
-      autoDuration = Math.max(autoDuration, measureTextWidth(text, 13));
+      autoDuration = Math.max(autoDuration, measureTextWidth(text, 13, 'var(--font-body)', 'normal'));
     }
-    autoDuration = Math.max(60, autoDuration + 24);
+    autoDuration = Math.max(60, autoDuration + 24 + 6);
 
     // 3. StartDate column auto-width
-    let autoStart = measureTextWidth('開始日', 11);
+    let autoStart = measureTextWidth('開始日', 11.5, 'var(--font-header)', '700');
     for (const task of visibleTasks) {
-      autoStart = Math.max(autoStart, measureTextWidth(task.startDate, 13));
+      autoStart = Math.max(autoStart, measureTextWidth(task.startDate, 13, 'var(--font-body)', 'normal'));
     }
-    autoStart = Math.max(80, autoStart + 24);
+    autoStart = Math.max(80, autoStart + 24 + 6);
 
     // 4. EndDate column auto-width
-    let autoEnd = measureTextWidth('終了日', 11);
+    let autoEnd = measureTextWidth('終了日', 11.5, 'var(--font-header)', '700');
     for (const task of visibleTasks) {
-      autoEnd = Math.max(autoEnd, measureTextWidth(task.endDate, 13));
+      autoEnd = Math.max(autoEnd, measureTextWidth(task.endDate, 13, 'var(--font-body)', 'normal'));
     }
-    autoEnd = Math.max(80, autoEnd + 24);
+    autoEnd = Math.max(80, autoEnd + 24 + 6);
 
     // 5. Assignee column auto-width
-    let autoAssignee = measureTextWidth('担当者', 11);
+    let autoAssignee = measureTextWidth('担当者', 11.5, 'var(--font-header)', '700');
     for (const task of visibleTasks) {
-      autoAssignee = Math.max(autoAssignee, measureTextWidth(task.assignee || '-', 13));
+      autoAssignee = Math.max(autoAssignee, measureTextWidth(task.assignee || '-', 13, 'var(--font-body)', 'normal'));
     }
-    autoAssignee = Math.max(80, autoAssignee + 24);
+    autoAssignee = Math.max(80, autoAssignee + 24 + 6);
+
+    // 6. Predecessor column auto-width
+    let autoDeps = measureTextWidth('先行', 11.5, 'var(--font-header)', '700');
+    for (const task of visibleTasks) {
+      if (task.dependencies && task.dependencies.length > 0) {
+        const indices = task.dependencies
+          .map(dId => {
+            const idx = project.tasks.findIndex(t => t.id === dId);
+            return idx !== -1 ? String(idx + 1) : '';
+          })
+          .filter(Boolean);
+        const text = indices.join(', ');
+        autoDeps = Math.max(autoDeps, measureTextWidth(text, 13, 'var(--font-body)', 'normal'));
+      }
+    }
+    autoDeps = Math.max(60, autoDeps + 24 + 6);
 
     return {
       name: manualWidths.name ?? autoName,
@@ -103,20 +127,58 @@ export function TaskTable() {
       startDate: manualWidths.startDate ?? autoStart,
       endDate: manualWidths.endDate ?? autoEnd,
       assignee: manualWidths.assignee ?? autoAssignee,
+      dependencies: manualWidths.dependencies ?? autoDeps,
     };
   }, [visibleTasks, project.tasks, manualWidths]);
 
+  const handleSelect = useCallback((id: string, ctrlKey: boolean, shiftKey: boolean) => {
+    if (shiftKey && lastClickedId) {
+      const idx1 = visibleTasks.findIndex(t => t.id === lastClickedId);
+      const idx2 = visibleTasks.findIndex(t => t.id === id);
+      if (idx1 !== -1 && idx2 !== -1) {
+        const start = Math.min(idx1, idx2);
+        const end = Math.max(idx1, idx2);
+        const rangeIds = visibleTasks.slice(start, end + 1).map(t => t.id);
+        setSelectedTaskIds(rangeIds);
+        setLastClickedId(id);
+        return;
+      }
+    }
+
+    if (ctrlKey) {
+      setSelectedTaskIds(prev => {
+        if (prev.includes(id)) {
+          return prev.filter(x => x !== id);
+        } else {
+          return [...prev, id];
+        }
+      });
+      setLastClickedId(id);
+    } else {
+      setSelectedTaskIds([id]);
+      setLastClickedId(id);
+    }
+  }, [visibleTasks, lastClickedId, setSelectedTaskIds]);
+
   const handleDragStart = useCallback((id: string) => {
-    setDraggedId(id);
-  }, []);
+    if (selectedTaskIds.includes(id)) {
+      setDraggedIds(selectedTaskIds);
+    } else {
+      setSelectedTaskIds([id]);
+      setDraggedIds([id]);
+    }
+  }, [selectedTaskIds, setSelectedTaskIds]);
 
   const handleDragOver = useCallback((e: React.DragEvent, id: string) => {
     e.preventDefault();
-    if (id === draggedId) return;
+    if (draggedIds.includes(id)) return;
 
-    if (draggedId) {
-      const descendants = getDescendants(draggedId, project.tasks);
-      if (descendants.some(t => t.id === id)) {
+    if (draggedIds.length > 0) {
+      const isDescendant = draggedIds.some(dId => {
+        const descendants = getDescendants(dId, project.tasks);
+        return descendants.some(t => t.id === id);
+      });
+      if (isDescendant) {
         e.dataTransfer.dropEffect = 'none';
         return;
       }
@@ -135,20 +197,20 @@ export function TaskTable() {
     }
     setDropTargetId(id);
     setDropPosition(pos);
-  }, [draggedId, project.tasks]);
+  }, [draggedIds, project.tasks]);
 
   const handleDrop = useCallback((e: React.DragEvent, id: string) => {
     e.preventDefault();
     e.stopPropagation();
-    if (draggedId && draggedId !== id) {
-      dispatch({ type: 'REORDER_TASK', id: draggedId, targetId: id, position: dropPosition });
+    if (draggedIds.length > 0 && !draggedIds.includes(id)) {
+      dispatch({ type: 'REORDER_TASKS', ids: draggedIds, targetId: id, position: dropPosition });
     }
-    setDraggedId(null);
+    setDraggedIds([]);
     setDropTargetId(null);
-  }, [draggedId, dropPosition, dispatch]);
+  }, [draggedIds, dropPosition, dispatch]);
 
   const handleDragEnd = useCallback(() => {
-    setDraggedId(null);
+    setDraggedIds([]);
     setDropTargetId(null);
   }, []);
 
@@ -158,6 +220,10 @@ export function TaskTable() {
   const startResize = (col: string, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    if (e.detail >= 2) {
+      resetColumnWidth(col as keyof ColWidths);
+      return;
+    }
     resizeStartXRef.current = e.clientX;
     resizeStartWidthRef.current = effectiveColWidths[col as keyof ColWidths];
     setResizing(col);
@@ -202,49 +268,82 @@ export function TaskTable() {
     <table className={styles.table} ref={tableRef}>
       <thead>
         <tr className={styles.headerRow}>
-          <th className={styles.headerCell} data-col="name" style={getColStyle('name')}>
+          <th
+            className={styles.headerCell}
+            data-col="name"
+            style={getColStyle('name')}
+            onDoubleClick={() => resetColumnWidth('name')}
+            title="ダブルクリックで自動調整"
+          >
             タスク名
             <span
               className={styles.resizeHandle}
               onMouseDown={(e) => startResize('name', e)}
-              onDoubleClick={() => resetColumnWidth('name')}
-              title="ダブルクリックで自動調整"
             />
           </th>
-          <th className={styles.headerCell} data-col="duration" style={getColStyle('duration')}>
+          <th
+            className={styles.headerCell}
+            data-col="duration"
+            style={getColStyle('duration')}
+            onDoubleClick={() => resetColumnWidth('duration')}
+            title="ダブルクリックで自動調整"
+          >
             期間
             <span
               className={styles.resizeHandle}
               onMouseDown={(e) => startResize('duration', e)}
-              onDoubleClick={() => resetColumnWidth('duration')}
-              title="ダブルクリックで自動調整"
             />
           </th>
-          <th className={styles.headerCell} data-col="startDate" style={getColStyle('startDate')}>
+          <th
+            className={styles.headerCell}
+            data-col="startDate"
+            style={getColStyle('startDate')}
+            onDoubleClick={() => resetColumnWidth('startDate')}
+            title="ダブルクリックで自動調整"
+          >
             開始日
             <span
               className={styles.resizeHandle}
               onMouseDown={(e) => startResize('startDate', e)}
-              onDoubleClick={() => resetColumnWidth('startDate')}
-              title="ダブルクリックで自動調整"
             />
           </th>
-          <th className={styles.headerCell} data-col="endDate" style={getColStyle('endDate')}>
+          <th
+            className={styles.headerCell}
+            data-col="endDate"
+            style={getColStyle('endDate')}
+            onDoubleClick={() => resetColumnWidth('endDate')}
+            title="ダブルクリックで自動調整"
+          >
             終了日
             <span
               className={styles.resizeHandle}
               onMouseDown={(e) => startResize('endDate', e)}
-              onDoubleClick={() => resetColumnWidth('endDate')}
-              title="ダブルクリックで自動調整"
             />
           </th>
-          <th className={styles.headerCell} data-col="assignee" style={getColStyle('assignee')}>
+          <th
+            className={styles.headerCell}
+            data-col="assignee"
+            style={getColStyle('assignee')}
+            onDoubleClick={() => resetColumnWidth('assignee')}
+            title="ダブルクリックで自動調整"
+          >
             担当者
             <span
               className={styles.resizeHandle}
               onMouseDown={(e) => startResize('assignee', e)}
-              onDoubleClick={() => resetColumnWidth('assignee')}
-              title="ダブルクリックで自動調整"
+            />
+          </th>
+          <th
+            className={styles.headerCell}
+            data-col="dependencies"
+            style={getColStyle('dependencies')}
+            onDoubleClick={() => resetColumnWidth('dependencies')}
+            title="ダブルクリックで自動調整"
+          >
+            先行
+            <span
+              className={styles.resizeHandle}
+              onMouseDown={(e) => startResize('dependencies', e)}
             />
           </th>
         </tr>
@@ -259,13 +358,13 @@ export function TaskTable() {
             <TaskRow
               key={task.id}
               task={task}
-              isSelected={task.id === selectedTaskId}
-              isDragged={task.id === draggedId}
+              isSelected={selectedTaskIds.includes(task.id)}
+              isDragged={draggedIds.includes(task.id)}
               showDropBefore={showDropBefore}
               showDropAfter={showDropAfter}
               showDropInside={showDropInside}
               colWidths={effectiveColWidths}
-              onSelect={setSelectedTaskId}
+              onSelect={handleSelect}
               onDragStart={handleDragStart}
               onDragOver={handleDragOver}
               onDrop={handleDrop}

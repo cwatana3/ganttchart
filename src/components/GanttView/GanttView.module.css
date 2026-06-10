@@ -11,6 +11,7 @@
   background: var(--header-bg);
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
+  box-shadow: var(--shadow-sm);
 }
 
 .headerSvg {
@@ -28,7 +29,8 @@
 .timelineText {
   fill: var(--text-muted);
   font-size: 10px;
-  font-family: system-ui, sans-serif;
+  font-weight: 600;
+  font-family: var(--font-header);
 }
 
 .weekendBg {
@@ -42,18 +44,19 @@
 }
 
 .todayLine {
-  stroke: #e74c3c;
+  stroke: #ef4444;
   stroke-width: 1.5;
   stroke-dasharray: 4 2;
 }
 
 .taskBar, .summaryBar, .milestoneDiamond {
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.15));
-  transition: filter 0.15s ease, opacity 0.15s ease;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.12));
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .taskBar:hover, .summaryBar:hover, .milestoneDiamond:hover {
-  filter: drop-shadow(0 2.5px 5px rgba(0, 0, 0, 0.25));
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.22));
+  opacity: 0.95 !important;
 }
 
 .taskBar {
@@ -70,7 +73,7 @@
 .summaryBar {
   fill: url(#summary-gradient);
   stroke: var(--summary-bar-stroke);
-  stroke-width: 1px;
+  stroke-width: 1.2px;
   cursor: grab;
 }
 
@@ -81,6 +84,33 @@
 .milestoneDiamond {
   fill: url(#milestone-gradient);
   stroke: var(--milestone-stroke);
-  stroke-width: 1px;
+  stroke-width: 1.2px;
   cursor: grab;
+}
+
+.milestoneDiamond:active {
+  cursor: grabbing;
+}
+
+.dependencyLine {
+  fill: none;
+  stroke: var(--accent-color);
+  stroke-width: 1.5px;
+  opacity: 0.45;
+  pointer-events: stroke; /* ensure hover triggers easily on stroke */
+  transition: all 0.2s ease;
+}
+
+.dependencyLine:hover {
+  opacity: 0.9;
+  stroke-width: 2px;
+}
+
+.linkingLine {
+  fill: none;
+  stroke: var(--accent-color);
+  stroke-width: 1.5px;
+  stroke-dasharray: 4 3;
+  opacity: 0.8;
+  pointer-events: none;
 }

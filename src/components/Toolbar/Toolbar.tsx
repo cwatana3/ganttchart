@@ -13,6 +13,8 @@ export function Toolbar({ onOpenCalendar }: ToolbarProps) {
   const {
     project,
     dispatch,
+    selectedTaskIds,
+    setSelectedTaskIds,
     selectedTaskId,
     setSelectedTaskId,
     viewMode,
@@ -72,9 +74,9 @@ export function Toolbar({ onOpenCalendar }: ToolbarProps) {
   };
 
   const handleDeleteTask = () => {
-    if (selectedTaskId) {
-      dispatch({ type: 'DELETE_TASK', id: selectedTaskId });
-      setSelectedTaskId(null);
+    if (selectedTaskIds.length > 0) {
+      dispatch({ type: 'DELETE_TASKS', ids: selectedTaskIds });
+      setSelectedTaskIds([]);
     }
   };
 
@@ -148,7 +150,7 @@ export function Toolbar({ onOpenCalendar }: ToolbarProps) {
       <button
         className={styles.button}
         onClick={handleDeleteTask}
-        disabled={!selectedTaskId}
+        disabled={selectedTaskIds.length === 0}
         title="削除 (Delete)"
       >
         🗑 削除
@@ -158,24 +160,26 @@ export function Toolbar({ onOpenCalendar }: ToolbarProps) {
 
       <div className={styles.labelGroup}>
         <span className={styles.labelText}>時間軸:</span>
-        <button
-          className={`${styles.button} ${viewMode === 'day' ? styles.active : ''}`}
-          onClick={() => setViewMode('day')}
-        >
-          日
-        </button>
-        <button
-          className={`${styles.button} ${viewMode === 'week' ? styles.active : ''}`}
-          onClick={() => setViewMode('week')}
-        >
-          週
-        </button>
-        <button
-          className={`${styles.button} ${viewMode === 'month' ? styles.active : ''}`}
-          onClick={() => setViewMode('month')}
-        >
-          月
-        </button>
+        <div className={styles.segmentedControl}>
+          <button
+            className={`${styles.segmentedButton} ${viewMode === 'day' ? styles.active : ''}`}
+            onClick={() => setViewMode('day')}
+          >
+            日
+          </button>
+          <button
+            className={`${styles.segmentedButton} ${viewMode === 'week' ? styles.active : ''}`}
+            onClick={() => setViewMode('week')}
+          >
+            週
+          </button>
+          <button
+            className={`${styles.segmentedButton} ${viewMode === 'month' ? styles.active : ''}`}
+            onClick={() => setViewMode('month')}
+          >
+            月
+          </button>
+        </div>
       </div>
 
       <div className={styles.separator} />

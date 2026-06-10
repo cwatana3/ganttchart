@@ -19,6 +19,8 @@ export function App() {
 
   const {
     project,
+    selectedTaskIds,
+    setSelectedTaskIds,
     selectedTaskId,
     setSelectedTaskId,
     dispatch,
@@ -77,10 +79,10 @@ export function App() {
 
       // 5. Delete: Delete
       if (e.key === 'Delete') {
-        if (selectedTaskId) {
+        if (selectedTaskIds.length > 0) {
           e.preventDefault();
-          dispatch({ type: 'DELETE_TASK', id: selectedTaskId });
-          setSelectedTaskId(null);
+          dispatch({ type: 'DELETE_TASKS', ids: selectedTaskIds });
+          setSelectedTaskIds([]);
         }
       }
     };
@@ -88,8 +90,9 @@ export function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [
+    selectedTaskIds,
+    setSelectedTaskIds,
     selectedTaskId,
-    setSelectedTaskId,
     dispatch,
     undo,
     canUndo,
@@ -118,7 +121,9 @@ export function App() {
       if (taskEl) {
         e.preventDefault();
         const taskId = taskEl.getAttribute('data-task-id')!;
-        setSelectedTaskId(taskId);
+        if (!selectedTaskIds.includes(taskId)) {
+          setSelectedTaskIds([taskId]);
+        }
         setContextMenu({
           x: e.clientX,
           y: e.clientY,
@@ -141,7 +146,7 @@ export function App() {
 
     window.addEventListener('contextmenu', handleContextMenu);
     return () => window.removeEventListener('contextmenu', handleContextMenu);
-  }, [setSelectedTaskId, project.tasks]);
+  }, [selectedTaskIds, setSelectedTaskIds, project.tasks]);
 
   const menuItems = useMemo(() => {
     if (!contextMenu) return [];
@@ -191,12 +196,11 @@ export function App() {
         },
         { label: '-' },
         {
-          label: '🗑 削除 (Delete)',
+          label: selectedTaskIds.length > 1 ? `🗑 選択した ${selectedTaskIds.length} 件のタスクを削除 (Delete)` : '🗑 削除 (Delete)',
           onClick: () => {
-            dispatch({ type: 'DELETE_TASK', id: taskId });
-            if (selectedTaskId === taskId) {
-              setSelectedTaskId(null);
-            }
+            const idsToDelete = selectedTaskIds.length > 0 ? selectedTaskIds : [taskId];
+            dispatch({ type: 'DELETE_TASKS', ids: idsToDelete });
+            setSelectedTaskIds([]);
           },
           danger: true,
         },
@@ -222,6 +226,8 @@ export function App() {
   }, [
     contextMenu,
     project.tasks,
+    selectedTaskIds,
+    setSelectedTaskIds,
     selectedTaskId,
     setSelectedTaskId,
     canUndo,

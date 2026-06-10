@@ -3,11 +3,12 @@ import { useProject } from '../../store/ProjectContext';
 import { getVisibleTasks } from '../../utils/taskTree';
 import { toDate, fromDate } from '../../utils/calendar';
 import { addDays, differenceInCalendarDays } from 'date-fns';
+import type { Task } from '../../types';
 import styles from './GanttView.module.css';
 
 const ROW_HEIGHT = 34;
-const BAR_HEIGHT = 26;
-const BAR_Y_OFFSET = 4;
+const BAR_HEIGHT = 12;
+const BAR_Y_OFFSET = 11;
 const HEADER_HEIGHT = 38;
 const MILESTONE_SIZE = 8;
 const RESIZE_HANDLE_WIDTH = 8;
@@ -31,9 +32,10 @@ interface GanttViewProps {
 }
 
 export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
-  const { project, dispatch, viewMode } = useProject();
+  const { project, dispatch, viewMode, selectedTaskIds } = useProject();
   const visibleTasks = getVisibleTasks(project.tasks);
   const [isDragging, setIsDragging] = useState(false);
+  const [linkingState, setLinkingState] = useState<{ fromTaskId: string; startX: number; startY: number; currentX: number; currentY: number } | null>(null);
   const [renderX, setRenderX] = useState(0);
   const dragRef = useRef<DragState | null>(null);
   const currentXRef = useRef(0);
@@ -134,6 +136,24 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
     if (!svgEl) return;
     const rect = svgEl.getBoundingClientRect();
     const startX = e.clientX - rect.left;
+    const startY = e.clientY - rect.top;
+
+    if (e.shiftKey) {
+      const idx = visibleTasks.findIndex(t => t.id === taskId);
+      if (idx !== -1) {
+        const barY = idx * ROW_HEIGHT + BAR_Y_OFFSET + BAR_HEIGHT / 2;
+        const barEndX = getX(endDate);
+        setLinkingState({
+          fromTaskId: taskId,
+          startX: barEndX,
+          startY: barY,
+          currentX: startX,
+          currentY: startY,
+        });
+      }
+      return;
+    }
+
     dragRef.current = { taskId, mode, startX, originalStartDate: startDate, originalEndDate: endDate, originalDuration: duration };
     currentXRef.current = startX;
     setRenderX(startX);
@@ -149,17 +169,53 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
   };
 
   useEffect(() => {
-    if (!isDragging) return;
+    if (!isDragging && !linkingState) return;
 
     const handleMouseMove = (e: MouseEvent) => {
       const svgEl = svgRef.current;
       if (!svgEl) return;
       const rect = svgEl.getBoundingClientRect();
-      currentXRef.current = e.clientX - rect.left;
-      setRenderX(currentXRef.current);
+      const currentX = e.clientX - rect.left;
+      const currentY = e.clientY - rect.top;
+
+      if (linkingState) {
+        setLinkingState(prev => prev ? { ...prev, currentX, currentY } : null);
+        return;
+      }
+
+      currentXRef.current = currentX;
+      setRenderX(currentX);
     };
 
-    const handleMouseUp = () => {
+    const handleMouseUp = (e: MouseEvent) => {
+      if (linkingState) {
+        const el = document.elementFromPoint(e.clientX, e.clientY);
+        const taskEl = el?.closest('[data-task-id]');
+        if (taskEl) {
+          const toTaskId = taskEl.getAttribute('data-task-id');
+          if (toTaskId && toTaskId !== linkingState.fromTaskId) {
+            const successorTask = project.tasks.find(t => t.id === toTaskId);
+            if (successorTask) {
+              const currentDeps = successorTask.dependencies || [];
+              if (!currentDeps.includes(linkingState.fromTaskId)) {
+                const isCircular = checkCircularDependency(linkingState.fromTaskId, toTaskId, project.tasks);
+                if (!isCircular) {
+                  dispatch({
+                    type: 'UPDATE_TASK',
+                    id: toTaskId,
+                    changes: { dependencies: [...currentDeps, linkingState.fromTaskId] },
+                  });
+                } else {
+                  alert('循環依存関係が発生するため接続できません');
+                }
+              }
+            }
+          }
+        }
+        setLinkingState(null);
+        return;
+      }
+
       const dragging = dragRef.current;
       if (dragging) {
         const currentX = currentXRef.current;
@@ -167,11 +223,9 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
           const offsetX = currentX - dragging.startX;
           const dayOffset = Math.round(offsetX / colWidth);
           if (dayOffset !== 0) {
-            const originalStart = toDate(dragging.originalStartDate);
-            const originalEnd = toDate(dragging.originalEndDate);
-            const newStart = fromDate(addDays(originalStart, dayOffset));
-            const newEnd = fromDate(addDays(originalEnd, dayOffset));
-            dispatch({ type: 'UPDATE_TASK', id: dragging.taskId, changes: { startDate: newStart, endDate: newEnd } });
+            const isPartofSelection = selectedTaskIds.includes(dragging.taskId);
+            const idsToShift = isPartofSelection ? selectedTaskIds : [dragging.taskId];
+            dispatch({ type: 'SHIFT_TASKS', ids: idsToShift, dayOffset });
           }
         } else {
           const originalEnd = toDate(dragging.originalEndDate);
@@ -202,7 +256,7 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isDragging, dispatch, minDate, colWidth]);
+  }, [isDragging, linkingState, project.tasks, selectedTaskIds, dispatch, minDate, colWidth]);
 
   // Timeline header dates
   const timelineDates = useMemo(() => {
@@ -343,7 +397,7 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
 
   const cursorStyle = isDragging
     ? (dragRef.current?.mode === 'resize' ? 'ew-resize' : 'grabbing')
-    : 'default';
+    : (linkingState ? 'crosshair' : 'default');
 
   return (
     <div className={styles.wrapper} ref={wrapperRef} style={{ cursor: cursorStyle }}>
@@ -392,23 +446,15 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
                   <rect x={cell.x} y={18} width={cell.width} height={19} className={styles.weekendBg} />
                 )}
                 <line x1={cell.x} y1={18} x2={cell.x} y2={HEADER_HEIGHT - 1} className={styles.gridLine} />
-                {cell.isToday && (
-                  <rect
-                    x={cell.x + cell.width / 2 - 9}
-                    y={18.5}
-                    width={18}
-                    height={18}
-                    fill="#e74c3c"
-                    rx={9}
-                  />
-                )}
                 <text
                   x={centerX}
                   y={30}
                   className={styles.timelineText}
                   textAnchor="middle"
-                  fill={cell.isToday ? '#ffffff' : cell.isSun ? '#e74c3c' : cell.isSat ? '#5a8fbf' : undefined}
-                  style={cell.isToday ? { fontWeight: 'bold' } : undefined}
+                  style={{
+                    fill: cell.isToday ? '#ef4444' : cell.isSun ? '#ef4444' : cell.isSat ? '#3b82f6' : undefined,
+                    fontWeight: cell.isToday ? '800' : undefined
+                  }}
                 >
                   {cell.label}
                 </text>
@@ -445,6 +491,17 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
               <stop offset="0%" stopColor="var(--milestone-start)" />
               <stop offset="100%" stopColor="var(--milestone-end)" />
             </linearGradient>
+            <marker
+              id="dependency-arrow"
+              viewBox="0 0 6 6"
+              refX="6"
+              refY="3"
+              markerWidth="6"
+              markerHeight="6"
+              orient="auto"
+            >
+              <path d="M 0 0 L 6 3 L 0 6 z" fill="var(--accent-color)" opacity="0.75" />
+            </marker>
           </defs>
 
           {/* Weekend background columns */}
@@ -481,13 +538,83 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
             return null;
           })()}
 
+          {/* Dependency connection lines */}
+          {visibleTasks.flatMap((task, succIdx) => {
+            if (!task.dependencies || task.dependencies.length === 0) return [];
+            
+            return task.dependencies.map((predId, depIdx) => {
+              const predIdx = visibleTasks.findIndex(t => t.id === predId);
+              if (predIdx === -1) return null;
+              
+              const predTask = visibleTasks[predIdx];
+              const predX = getX(predTask.endDate);
+              const predY = predIdx * ROW_HEIGHT + BAR_Y_OFFSET + BAR_HEIGHT / 2;
+              
+              const succX = getX(task.startDate);
+              const succY = succIdx * ROW_HEIGHT + BAR_Y_OFFSET + BAR_HEIGHT / 2;
+              
+              const startX = predX;
+              const startY = predY;
+              const endX = succX;
+              const endY = succY;
+              
+              let points: string = '';
+              
+              if (endX >= startX + 12) {
+                const midX = startX + (endX - startX) / 2;
+                points = [
+                  `${startX},${startY}`,
+                  `${midX},${startY}`,
+                  `${midX},${endY}`,
+                  `${endX},${endY}`
+                ].join(' ');
+              } else {
+                const offsetOut = startX + 6;
+                const offsetIn = endX - 6;
+                const midY = startY + (endY - startY) / 2;
+                points = [
+                  `${startX},${startY}`,
+                  `${offsetOut},${startY}`,
+                  `${offsetOut},${midY}`,
+                  `${offsetIn},${midY}`,
+                  `${offsetIn},${endY}`,
+                  `${endX},${endY}`
+                ].join(' ');
+              }
+              
+              return (
+                <polyline
+                  key={`dep-${predTask.id}-${task.id}-${depIdx}`}
+                  points={points}
+                  className={styles.dependencyLine}
+                  markerEnd="url(#dependency-arrow)"
+                />
+              );
+            });
+          })}
+
+          {/* Temporary linking line */}
+          {linkingState && (
+            <line
+              x1={linkingState.startX}
+              y1={linkingState.startY}
+              x2={linkingState.currentX}
+              y2={linkingState.currentY}
+              className={styles.linkingLine}
+              markerEnd="url(#dependency-arrow)"
+            />
+          )}
+
           {/* Task bars */}
           {visibleTasks.map((task, i) => {
             const y = i * ROW_HEIGHT + BAR_Y_OFFSET;
             const d = dragRef.current;
             const isBeingDragged = isDragging && d?.taskId === task.id;
             const isResizing = isBeingDragged && d?.mode === 'resize';
-            const isMoving = isBeingDragged && d?.mode === 'move';
+            const isMoving = isDragging && d?.mode === 'move' && 
+              (d?.taskId === task.id || (selectedTaskIds.includes(d.taskId) && selectedTaskIds.includes(task.id)));
+            const isDraggedOrMovingSelected = isBeingDragged || 
+              (isDragging && d?.mode === 'move' && selectedTaskIds.includes(d.taskId) && selectedTaskIds.includes(task.id));
 
             const originalX1 = getX(task.startDate);
             const originalX2 = getX(task.endDate);
@@ -518,7 +645,7 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
                   data-task-id={task.id}
                   points={points}
                   className={styles.milestoneDiamond}
-                  style={{ cursor: isBeingDragged ? 'grabbing' : 'grab', opacity: isBeingDragged ? 0.6 : 1 }}
+                  style={{ cursor: isDraggedOrMovingSelected ? 'grabbing' : 'grab', opacity: isDraggedOrMovingSelected ? 0.6 : 1 }}
                   onMouseDown={(e) => handleMoveMouseDown(e, task.id, task.startDate, task.endDate, task.duration)}
                 />
               );
@@ -528,10 +655,10 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
               const dPath = [
                 `M ${x1} ${y}`,
                 `H ${x1 + barWidth}`,
-                `V ${y + 16}`,
-                `L ${x1 + barWidth - 6} ${y + 9}`,
-                `H ${x1 + 6}`,
-                `L ${x1} ${y + 16}`,
+                `V ${y + 14}`,
+                `L ${x1 + barWidth - 4} ${y + 8}`,
+                `H ${x1 + 4}`,
+                `L ${x1} ${y + 14}`,
                 `Z`
               ].join(' ');
 
@@ -541,8 +668,8 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
                      d={dPath}
                      className={styles.summaryBar}
                      style={{
-                       cursor: isBeingDragged ? 'grabbing' : 'grab',
-                       opacity: isBeingDragged ? 0.6 : 1,
+                       cursor: isDraggedOrMovingSelected ? 'grabbing' : 'grab',
+                       opacity: isDraggedOrMovingSelected ? 0.6 : 1,
                      }}
                      onMouseDown={(e) => handleMoveMouseDown(e, task.id, task.startDate, task.endDate, task.duration)}
                   />
@@ -567,12 +694,12 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
                   width={barWidth}
                   height={BAR_HEIGHT}
                   className={styles.taskBar}
-                  rx={3}
-                  ry={3}
+                  rx={2}
+                  ry={2}
                   style={{
-                    cursor: isBeingDragged ? (isResizing ? 'ew-resize' : 'grabbing') : 'grab',
-                    opacity: isBeingDragged ? 0.6 : 1,
-                    transition: isBeingDragged ? 'none' : 'opacity 0.1s',
+                    cursor: isDraggedOrMovingSelected ? (isResizing ? 'ew-resize' : 'grabbing') : 'grab',
+                    opacity: isDraggedOrMovingSelected ? 0.6 : 1,
+                    transition: isDraggedOrMovingSelected ? 'none' : 'opacity 0.1s',
                   }}
                   onMouseDown={(e) => handleMoveMouseDown(e, task.id, task.startDate, task.endDate, task.duration)}
                 />
@@ -602,4 +729,11 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
       </div>
     </div>
   );
+}
+
+function checkCircularDependency(targetId: string, potentialPredecessorId: string, tasks: Task[]): boolean {
+  const task = tasks.find(t => t.id === potentialPredecessorId);
+  if (!task || !task.dependencies) return false;
+  if (task.dependencies.includes(targetId)) return true;
+  return task.dependencies.some((dId: string) => checkCircularDependency(targetId, dId, tasks));
 }

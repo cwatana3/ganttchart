@@ -1,25 +1,29 @@
 .menu {
   position: fixed;
   z-index: 1000;
-  min-width: 180px;
-  background: var(--bg-color);
+  min-width: 200px;
+  background: var(--toolbar-bg);
   border: 1px solid var(--border-color);
-  border-radius: 6px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
-  padding: 4px 0;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg), var(--shadow-glass);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  padding: 6px;
   display: flex;
   flex-direction: column;
-  animation: fadeIn 0.1s ease-out;
+  gap: 2px;
+  animation: fadeIn 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: top left;
 }
 
 @keyframes fadeIn {
   from {
     opacity: 0;
-    transform: scale(0.96);
+    transform: scale(0.95) translateY(-4px);
   }
   to {
     opacity: 1;
-    transform: scale(1);
+    transform: scale(1) translateY(0);
   }
 }
 
@@ -29,18 +33,25 @@
   background: transparent;
   color: var(--text-color);
   font-size: 13px;
+  font-weight: 500;
   text-align: left;
-  padding: 6px 16px;
+  padding: 8px 12px;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 8px;
-  transition: background 0.08s;
-  font-family: inherit;
+  gap: 10px;
+  border-radius: var(--radius-md);
+  transition: all 0.15s ease;
+  font-family: var(--font-body);
 }
 
 .item:hover:not(:disabled) {
   background: var(--hover-bg);
+  transform: translateX(2px);
+}
+
+.item:active:not(:disabled) {
+  background: var(--active-bg);
 }
 
 .item:disabled {
@@ -49,15 +60,16 @@
 }
 
 .item.danger {
-  color: #e74c3c;
+  color: #ef4444;
 }
 
 .item.danger:hover:not(:disabled) {
-  background: rgba(231, 76, 60, 0.1);
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
 }
 
 .divider {
   height: 1px;
   background: var(--border-color);
-  margin: 4px 0;
+  margin: 4px 6px;
 }
