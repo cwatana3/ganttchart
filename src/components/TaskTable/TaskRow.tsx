@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import type { Task } from '../../types';
 import { useProject } from '../../store/ProjectContext';
-import { getDepth } from '../../utils/taskTree';
+import { getDepth, checkCircularDependency } from '../../utils/taskTree';
 import styles from './TaskTable.module.css';
 
 interface ColWidths {
@@ -29,7 +29,7 @@ interface TaskRowProps {
   onDragLeave: () => void;
 }
 
-export function TaskRow({
+export const TaskRow = memo(function TaskRow({
   task,
   isSelected,
   isDragged,
@@ -81,10 +81,27 @@ export function TaskRow({
           .split(',')
           .map(s => parseInt(s.trim(), 10))
           .filter(n => !isNaN(n) && n > 0 && n <= project.tasks.length);
-        const depIds = nums
-          .map(num => project.tasks[num - 1]?.id)
-          .filter(Boolean);
-        changes.dependencies = depIds;
+        const invalidDeps: number[] = [];
+        const validDepIds: string[] = [];
+        for (const num of nums) {
+          const depTask = project.tasks[num - 1];
+          if (!depTask) continue;
+          if (depTask.id === task.id) {
+            invalidDeps.push(num);
+            continue;
+          }
+          if (checkCircularDependency(task.id, depTask.id, project.tasks)) {
+            invalidDeps.push(num);
+          } else {
+            validDepIds.push(depTask.id);
+          }
+        }
+        if (invalidDeps.length > 0) {
+          alert(`タスク ${invalidDeps.join(', ')} は循環依存関係が発生するため、先行タスクとして追加できません。`);
+          setEditingField(null);
+          return;
+        }
+        changes.dependencies = validDepIds;
         break;
       }
     }
@@ -203,4 +220,4 @@ export function TaskRow({
       })()}
     </tr>
   );
-}
+});

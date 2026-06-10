@@ -28,7 +28,6 @@ export type ProjectAction =
   | { type: 'SET_PROJECT_NAME'; name: string }
   | { type: 'SET_CALENDAR'; calendar: Calendar }
   | { type: 'ADD_TASK'; parentId: string | null; afterId?: string }
-  | { type: 'DELETE_TASK'; id: string }
   | { type: 'DELETE_TASKS'; ids: string[] }
   | { type: 'UPDATE_TASK'; id: string; changes: Partial<Task> }
   | { type: 'INDENT_TASK'; id: string }

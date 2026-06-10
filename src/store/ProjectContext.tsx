@@ -12,7 +12,14 @@ import { addWorkingDays, fromDate, toDate, countWorkingDays } from '../utils/cal
 import { addDays } from 'date-fns';
 
 function generateId(): string {
-  return crypto.randomUUID();
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
 }
 
 const STORE_NAME = 'gannt-project';
@@ -82,18 +89,18 @@ function rawProjectReducer(state: Project, action: ProjectAction): Project {
           const targetTask = flat[afterIdx];
           const descendants = getDescendants(targetTask.id, tasks);
           const lastDescId = descendants.length > 0 ? descendants[descendants.length - 1].id : targetTask.id;
-          const insertPos = tasks.findIndex(t => t.id === lastDescId);
+          const baseInsertPos = tasks.findIndex(t => t.id === lastDescId);
           
           // 同じ親の次の兄弟がいる場合、その手前
           const siblings = tasks.filter(t => t.parentId === action.parentId);
           const afterSibIdx = siblings.findIndex(t => t.id === action.afterId);
           if (afterSibIdx < siblings.length - 1) {
             const nextSib = siblings[afterSibIdx + 1];
-            const insertPos = tasks.findIndex(t => t.id === nextSib.id);
-            tasks.splice(insertPos, 0, newTask);
+            const siblingInsertPos = tasks.findIndex(t => t.id === nextSib.id);
+            tasks.splice(siblingInsertPos, 0, newTask);
           } else {
-            // 最後の兄弟の場合、全タスクの最後
-            tasks.splice(insertPos + 1, 0, newTask);
+            // 最後の兄弟の場合、対象タスクブロックの直後
+            tasks.splice(baseInsertPos + 1, 0, newTask);
           }
         }
       } else {
@@ -116,26 +123,7 @@ function rawProjectReducer(state: Project, action: ProjectAction): Project {
       return { ...state, tasks };
     }
 
-    case 'DELETE_TASK': {
-      const idsToDelete = new Set<string>([action.id]);
-      function collectChildren(parentId: string) {
-        for (const child of getChildren(parentId, state.tasks)) {
-          idsToDelete.add(child.id);
-          collectChildren(child.id);
-        }
-      }
-      collectChildren(action.id);
-      const remainingTasks = state.tasks.filter(t => !idsToDelete.has(t.id)).map(t => {
-        if (t.dependencies && t.dependencies.some(d => idsToDelete.has(d))) {
-          return {
-            ...t,
-            dependencies: t.dependencies.filter(d => !idsToDelete.has(d)),
-          };
-        }
-        return t;
-      });
-      return { ...state, tasks: remainingTasks };
-    }
+
 
     case 'DELETE_TASKS': {
       const idsToDelete = new Set<string>(action.ids);
@@ -165,15 +153,22 @@ function rawProjectReducer(state: Project, action: ProjectAction): Project {
         if (t.id !== action.id) return t;
         const updated = { ...t, ...action.changes };
 
-        if (updated.isMilestone) {
-          updated.duration = 0;
-          updated.endDate = updated.startDate;
-        } else if (action.changes.duration !== undefined && !action.changes.endDate) {
-          updated.endDate = addWorkingDays(updated.startDate, updated.duration, state.calendar);
+        if (action.changes.duration !== undefined && !action.changes.endDate) {
+          updated.isMilestone = updated.duration === 0;
+          if (updated.isMilestone) {
+            updated.endDate = updated.startDate;
+          } else {
+            updated.endDate = addWorkingDays(updated.startDate, updated.duration, state.calendar);
+          }
         } else if (action.changes.startDate !== undefined && !action.changes.endDate) {
-          updated.endDate = addWorkingDays(updated.startDate, updated.duration, state.calendar);
+          if (updated.isMilestone) {
+            updated.endDate = updated.startDate;
+          } else {
+            updated.endDate = addWorkingDays(updated.startDate, updated.duration, state.calendar);
+          }
         } else if (action.changes.endDate !== undefined && action.changes.startDate === undefined) {
           updated.duration = countWorkingDays(updated.startDate, updated.endDate, state.calendar);
+          updated.isMilestone = updated.duration === 0;
         }
 
         return updated;
@@ -456,7 +451,8 @@ function updateParentTasks(tasks: Task[], calendar: Calendar): Task[] {
         if (
           t.startDate === resolved.startDate &&
           t.endDate === resolved.endDate &&
-          t.duration === resolved.duration
+          t.duration === resolved.duration &&
+          !t.isMilestone
         ) {
           return t;
         }
@@ -465,6 +461,7 @@ function updateParentTasks(tasks: Task[], calendar: Calendar): Task[] {
           startDate: resolved.startDate,
           endDate: resolved.endDate,
           duration: resolved.duration,
+          isMilestone: false,
         };
       }
     }
@@ -625,7 +622,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       descendants,
       isCut: true,
     });
-    dispatch({ type: 'DELETE_TASK', id });
+    dispatch({ type: 'DELETE_TASKS', ids: [id] });
     setSelectedTaskId(null);
   }, [project.tasks, dispatch]);
 

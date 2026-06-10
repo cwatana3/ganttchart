@@ -1,9 +1,8 @@
 import { useMemo, useCallback, useState, useEffect, useRef } from 'react';
 import { useProject } from '../../store/ProjectContext';
-import { getVisibleTasks } from '../../utils/taskTree';
+import { getVisibleTasks, checkCircularDependency } from '../../utils/taskTree';
 import { toDate, fromDate } from '../../utils/calendar';
 import { addDays, differenceInCalendarDays } from 'date-fns';
-import type { Task } from '../../types';
 import styles from './GanttView.module.css';
 
 const ROW_HEIGHT = 34;
@@ -731,9 +730,4 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
   );
 }
 
-function checkCircularDependency(targetId: string, potentialPredecessorId: string, tasks: Task[]): boolean {
-  const task = tasks.find(t => t.id === potentialPredecessorId);
-  if (!task || !task.dependencies) return false;
-  if (task.dependencies.includes(targetId)) return true;
-  return task.dependencies.some((dId: string) => checkCircularDependency(targetId, dId, tasks));
-}
+

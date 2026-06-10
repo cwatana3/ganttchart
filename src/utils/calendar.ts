@@ -44,20 +44,13 @@ export function addWorkingDays(startDateStr: string, duration: number, calendar:
  * endDate が startDate より前の場合は負の数を返す。
  */
 export function countWorkingDays(startDateStr: string, endDateStr: string, calendar: Calendar): number {
-  if (startDateStr === endDateStr) return 0;
-
   const start = toDate(startDateStr);
   const end = toDate(endDateStr);
   const totalDays = differenceInCalendarDays(end, start);
 
-  if (totalDays < 0) return 0;
+  if (totalDays <= 0) return 0;
 
   let count = 0;
-
-  if (isWorkingDay(startDateStr, calendar)) {
-    count++;
-  }
-
   let current = start;
   for (let i = 0; i < totalDays; i++) {
     current = addDays(current, 1);

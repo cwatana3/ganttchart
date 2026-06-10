@@ -165,11 +165,7 @@ function getColSpecs(C: Colors): { specs: ColSpec[]; colColor: string } {
     specs: [
       {
         key: 'name', label: 'タスク名',
-        getValue: (t, d) => {
-          const prefix = d > 0 ? '  '.repeat(d) + '├ ' : '';
-          const namePrefix = t.isMilestone ? '◆ ' : prefix;
-          return namePrefix + t.name;
-        },
+        getValue: (t) => t.name,
         fontSize: 12,
       },
       {
@@ -204,7 +200,11 @@ function computeColWidths(tasks: any[], specs: ColSpec[]): {
   const dataWidths = specs.map(s =>
     tasks.reduce((max, t) => {
       const d = getDepth(t.id, tasks);
-      return Math.max(max, textWidth(s.getValue(t, d), s.fontSize));
+      let w = textWidth(s.getValue(t, d), s.fontSize);
+      if (s.key === 'name') {
+        w += d * 16 + 32; // Add tree lines and icon space
+      }
+      return Math.max(max, w);
     }, 0) + COL_PAD,
   );
 
@@ -497,6 +497,21 @@ export function exportToSVG(project: Project, light: boolean, viewMode: 'day' | 
   milestoneGrad.appendChild(milestoneStop2);
   defs.appendChild(milestoneGrad);
 
+  // Dependency arrow marker (solid color, no transparency)
+  const marker = svgEl('marker');
+  marker.setAttribute('id', 'dependency-arrow');
+  marker.setAttribute('viewBox', '0 0 6 6');
+  marker.setAttribute('refX', '6');
+  marker.setAttribute('refY', '3');
+  marker.setAttribute('markerWidth', '6');
+  marker.setAttribute('markerHeight', '6');
+  marker.setAttribute('orient', 'auto');
+  const markerPath = svgEl('path');
+  markerPath.setAttribute('d', 'M 0 0 L 6 3 L 0 6 z');
+  markerPath.setAttribute('fill', C.accent);
+  marker.appendChild(markerPath);
+  defs.appendChild(marker);
+
   svg.appendChild(defs);
 
   // ================================================================
@@ -520,11 +535,94 @@ export function exportToSVG(project: Project, light: boolean, viewMode: 'day' | 
     const rowMidY = rowY + ROW_H / 2 + 4;
 
     for (let c = 0; c < specs.length; c++) {
-      const raw = specs[c].getValue(task, depth);
-      if (!raw) continue;
-      const maxPx = colEndX[c] - colStartX[c] - COL_PAD;
-      const display = truncate(raw, maxPx, specs[c].fontSize);
-      svg.appendChild(textEl(colStartX[c] + 8, rowMidY, display, colColor, { fontSize: specs[c].fontSize }));
+      const spec = specs[c];
+      const raw = spec.getValue(task, depth);
+
+      if (spec.key === 'name') {
+        const treeLineColor = light ? '#cbd5e1' : '#334155';
+        
+        // 1. Draw vertical lines for ancestors
+        for (let j = 1; j < depth; j++) {
+          const ancestor = getAncestorAtDepth(task, j, project.tasks);
+          if (ancestor && !isLastVisibleChild(ancestor, visibleTasks)) {
+            const lineX = colStartX[0] + 12 + (j - 1) * 16 + 6;
+            const vLine = lineEl(lineX, rowY, lineX, rowY + ROW_H, treeLineColor, 1);
+            vLine.setAttribute('shape-rendering', 'crispEdges');
+            svg.appendChild(vLine);
+          }
+        }
+
+        // 2. Draw branch line for the current task
+        if (depth > 0) {
+          const lineX = colStartX[0] + 12 + (depth - 1) * 16 + 6;
+          const iconAreaLeft = colStartX[0] + 12 + depth * 16;
+          const midY = rowY + ROW_H / 2;
+          
+          // Vertical segment
+          const isLast = isLastVisibleChild(task, visibleTasks);
+          const vLineEnd = isLast ? midY : rowY + ROW_H;
+          const vLine = lineEl(lineX, rowY, lineX, vLineEnd, treeLineColor, 1);
+          vLine.setAttribute('shape-rendering', 'crispEdges');
+          svg.appendChild(vLine);
+          
+          // Horizontal segment
+          const hLine = lineEl(lineX, midY, iconAreaLeft, midY, treeLineColor, 1);
+          hLine.setAttribute('shape-rendering', 'crispEdges');
+          svg.appendChild(hLine);
+        }
+
+        // 3. Draw Icon / Chevron
+        const iconX = colStartX[0] + 12 + depth * 16 + 6;
+        const iconY = rowY + ROW_H / 2;
+        const hasChildren = project.tasks.some(t => t.parentId === task.id);
+        
+        if (hasChildren) {
+          // Chevron icon (expanded ▼ / collapsed ▶)
+          const chevron = svgEl('path');
+          if (task.collapsed) {
+            // Right chevron ▶
+            chevron.setAttribute('d', `M ${iconX - 2} ${iconY - 4} L ${iconX + 3} ${iconY} L ${iconX - 2} ${iconY + 4} Z`);
+          } else {
+            // Down chevron ▼
+            chevron.setAttribute('d', `M ${iconX - 4} ${iconY - 2} L ${iconX} ${iconY + 3} L ${iconX + 4} ${iconY - 2} Z`);
+          }
+          chevron.setAttribute('fill', C.textMuted);
+          svg.appendChild(chevron);
+        } else if (task.isMilestone) {
+          // Milestone diamond icon
+          const diamond = svgEl('polygon');
+          const points = [
+            `${iconX},${iconY - 4.5}`,
+            `${iconX + 4.5},${iconY}`,
+            `${iconX},${iconY + 4.5}`,
+            `${iconX - 4.5},${iconY}`
+          ].join(' ');
+          diamond.setAttribute('points', points);
+          diamond.setAttribute('fill', 'url(#milestone-gradient)');
+          diamond.setAttribute('stroke', C.milestoneStroke);
+          diamond.setAttribute('stroke-width', '1');
+          svg.appendChild(diamond);
+        } else {
+          // Sleek bullet point dot
+          const dot = svgEl('circle');
+          dot.setAttribute('cx', String(iconX));
+          dot.setAttribute('cy', String(iconY));
+          dot.setAttribute('r', '2.5');
+          dot.setAttribute('fill', C.accent);
+          svg.appendChild(dot);
+        }
+
+        // 4. Render name text
+        const textX = colStartX[0] + 12 + depth * 16 + 18;
+        const maxPx = colEndX[c] - textX - 8;
+        const display = truncate(raw, maxPx, spec.fontSize);
+        svg.appendChild(textEl(textX, rowMidY, display, colColor, { fontSize: spec.fontSize }));
+      } else {
+        if (!raw) continue;
+        const maxPx = colEndX[c] - colStartX[c] - COL_PAD;
+        const display = truncate(raw, maxPx, spec.fontSize);
+        svg.appendChild(textEl(colStartX[c] + 8, rowMidY, display, colColor, { fontSize: spec.fontSize }));
+      }
     }
   }
 
@@ -615,6 +713,59 @@ export function exportToSVG(project: Project, light: boolean, viewMode: 'day' | 
     chart.appendChild(tLine);
   }
 
+  // Draw dependency connection lines (solid color, no transparency)
+  visibleTasks.forEach((task, succIdx) => {
+    if (!task.dependencies || task.dependencies.length === 0) return;
+    task.dependencies.forEach((predId) => {
+      const predIdx = visibleTasks.findIndex(t => t.id === predId);
+      if (predIdx === -1) return;
+
+      const predTask = visibleTasks[predIdx];
+      const predX = getX(predTask.endDate);
+      const predY = HEADER_H + predIdx * ROW_H + ROW_H / 2;
+
+      const succX = getX(task.startDate);
+      const succY = HEADER_H + succIdx * ROW_H + ROW_H / 2;
+
+      const startX = predX;
+      const startY = predY;
+      const endX = succX;
+      const endY = succY;
+
+      let points: string = '';
+
+      if (endX >= startX + 12) {
+        const midX = startX + (endX - startX) / 2;
+        points = [
+          `${startX},${startY}`,
+          `${midX},${startY}`,
+          `${midX},${endY}`,
+          `${endX},${endY}`
+        ].join(' ');
+      } else {
+        const offsetOut = startX + 6;
+        const offsetIn = endX - 6;
+        const midY = startY + (endY - startY) / 2;
+        points = [
+          `${startX},${startY}`,
+          `${offsetOut},${startY}`,
+          `${offsetOut},${midY}`,
+          `${offsetIn},${midY}`,
+          `${offsetIn},${endY}`,
+          `${endX},${endY}`
+        ].join(' ');
+      }
+
+      const poly = svgEl('polyline');
+      poly.setAttribute('points', points);
+      poly.setAttribute('fill', 'none');
+      poly.setAttribute('stroke', C.accent);
+      poly.setAttribute('stroke-width', '1.5');
+      poly.setAttribute('marker-end', 'url(#dependency-arrow)');
+      chart.appendChild(poly);
+    });
+  });
+
   for (let i = 0; i < visibleTasks.length; i++) {
     const task = visibleTasks[i];
     const barY = HEADER_H + i * ROW_H + (ROW_H - BAR_H) / 2;
@@ -673,13 +824,63 @@ function downloadBlob(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
+export function validateProject(obj: any): obj is Project {
+  if (!obj || typeof obj !== 'object') return false;
+  if (typeof obj.name !== 'string') return false;
+  
+  // Validate calendar
+  const cal = obj.calendar;
+  if (!cal || typeof cal !== 'object') return false;
+  if (!Array.isArray(cal.workingDays) || !cal.workingDays.every((d: any) => typeof d === 'number')) return false;
+  if (!Array.isArray(cal.holidays) || !cal.holidays.every((h: any) => typeof h === 'string')) return false;
+  
+  // Validate tasks
+  if (!Array.isArray(obj.tasks)) return false;
+  for (const t of obj.tasks) {
+    if (!t || typeof t !== 'object') return false;
+    if (typeof t.id !== 'string') return false;
+    if (typeof t.name !== 'string') return false;
+    if (typeof t.startDate !== 'string') return false;
+    if (typeof t.endDate !== 'string') return false;
+    if (typeof t.duration !== 'number') return false;
+    if (t.parentId !== null && typeof t.parentId !== 'string') return false;
+    if (typeof t.isMilestone !== 'boolean') return false;
+    if (typeof t.progress !== 'number') return false;
+    if (typeof t.collapsed !== 'boolean') return false;
+    if (t.assignee !== undefined && typeof t.assignee !== 'string') return false;
+    if (t.dependencies !== undefined && (!Array.isArray(t.dependencies) || !t.dependencies.every((d: any) => typeof d === 'string'))) return false;
+  }
+  
+  return true;
+}
+
+function isLastVisibleChild(task: any, visibleTasks: any[]): boolean {
+  const siblings = visibleTasks.filter(t => t.parentId === task.parentId);
+  const idx = siblings.findIndex(t => t.id === task.id);
+  return idx === siblings.length - 1;
+}
+
+function getAncestorAtDepth(task: any, targetDepth: number, tasks: any[]): any | null {
+  let current: any | null = task;
+  const path: any[] = [];
+  while (current) {
+    path.unshift(current);
+    current = current.parentId ? tasks.find(t => t.id === current!.parentId) || null : null;
+  }
+  return path[targetDepth] || null;
+}
+
 export function importFromJSON(file: File): Promise<Project> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        const project = JSON.parse(reader.result as string) as Project;
-        resolve(project);
+        const project = JSON.parse(reader.result as string);
+        if (validateProject(project)) {
+          resolve(project);
+        } else {
+          reject(new Error('インポートされたデータの形式が正しくありません'));
+        }
       } catch {
         reject(new Error('ファイルの解析に失敗しました'));
       }
