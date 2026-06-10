@@ -1,0 +1,86 @@
+.wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.headerSticky {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--header-bg);
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.headerSvg {
+  display: block;
+}
+
+.scrollArea {
+  flex: 1;
+}
+
+.barsSvg {
+  display: block;
+}
+
+.timelineText {
+  fill: var(--text-muted);
+  font-size: 10px;
+  font-family: system-ui, sans-serif;
+}
+
+.weekendBg {
+  fill: var(--weekend-bg);
+}
+
+.gridLine {
+  stroke: var(--border-color);
+  stroke-width: 1px;
+  shape-rendering: crispEdges;
+}
+
+.todayLine {
+  stroke: #e74c3c;
+  stroke-width: 1.5;
+  stroke-dasharray: 4 2;
+}
+
+.taskBar, .summaryBar, .milestoneDiamond {
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.15));
+  transition: filter 0.15s ease, opacity 0.15s ease;
+}
+
+.taskBar:hover, .summaryBar:hover, .milestoneDiamond:hover {
+  filter: drop-shadow(0 2.5px 5px rgba(0, 0, 0, 0.25));
+}
+
+.taskBar {
+  fill: url(#task-gradient);
+  stroke: var(--task-bar-stroke);
+  stroke-width: 1px;
+  cursor: grab;
+}
+
+.taskBar:active {
+  cursor: grabbing;
+}
+
+.summaryBar {
+  fill: url(#summary-gradient);
+  stroke: var(--summary-bar-stroke);
+  stroke-width: 1px;
+  cursor: grab;
+}
+
+.summaryBar:active {
+  cursor: grabbing;
+}
+
+.milestoneDiamond {
+  fill: url(#milestone-gradient);
+  stroke: var(--milestone-stroke);
+  stroke-width: 1px;
+  cursor: grab;
+}

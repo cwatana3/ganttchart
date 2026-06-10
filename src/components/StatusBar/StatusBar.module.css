@@ -1,0 +1,16 @@
+.statusBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 12px;
+  background: var(--accent-color);
+  color: white;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}

@@ -1,0 +1,605 @@
+import { useMemo, useCallback, useState, useEffect, useRef } from 'react';
+import { useProject } from '../../store/ProjectContext';
+import { getVisibleTasks } from '../../utils/taskTree';
+import { toDate, fromDate } from '../../utils/calendar';
+import { addDays, differenceInCalendarDays } from 'date-fns';
+import styles from './GanttView.module.css';
+
+const ROW_HEIGHT = 34;
+const BAR_HEIGHT = 26;
+const BAR_Y_OFFSET = 4;
+const HEADER_HEIGHT = 38;
+const MILESTONE_SIZE = 8;
+const RESIZE_HANDLE_WIDTH = 8;
+const PADDING_X = 32;
+
+type DragMode = 'move' | 'resize';
+
+interface DragState {
+  taskId: string;
+  mode: DragMode;
+  startX: number;
+  originalStartDate: string;
+  originalEndDate: string;
+  originalDuration: number;
+}
+
+interface GanttViewProps {
+  svgRef: React.RefObject<SVGSVGElement>;
+  wrapperRef: React.RefObject<HTMLDivElement>;
+  scrollRef: React.RefObject<HTMLDivElement>;
+}
+
+export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
+  const { project, dispatch, viewMode } = useProject();
+  const visibleTasks = getVisibleTasks(project.tasks);
+  const [isDragging, setIsDragging] = useState(false);
+  const [renderX, setRenderX] = useState(0);
+  const dragRef = useRef<DragState | null>(null);
+  const currentXRef = useRef(0);
+  const headerRef = useRef<HTMLDivElement>(null);
+
+  const colWidth = useMemo(() => {
+    if (viewMode === 'week') return 8;
+    if (viewMode === 'month') return 2;
+    return 32; // day
+  }, [viewMode]);
+
+  const { minDate, totalDays, totalWidth, barsHeight } = useMemo(() => {
+    if (visibleTasks.length === 0) {
+      let today = new Date();
+      if (viewMode === 'week') {
+        today = addDays(today, -today.getDay());
+      } else if (viewMode === 'month') {
+        today = new Date(today.getFullYear(), today.getMonth(), 1);
+      }
+      const days = viewMode === 'month' ? 365 : viewMode === 'week' ? 90 : 30;
+      return {
+        minDate: today,
+        maxDate: addDays(today, days),
+        totalDays: days,
+        totalWidth: days * colWidth + PADDING_X * 2,
+        barsHeight: ROW_HEIGHT + 50,
+      };
+    }
+
+    let min = toDate('2099-12-31');
+    let max = toDate('2000-01-01');
+
+    for (const task of visibleTasks) {
+      const start = toDate(task.startDate);
+      const end = toDate(task.endDate);
+      if (start < min) min = start;
+      if (end > max) max = end;
+    }
+
+    let startPadding = -5;
+    let endPadding = 10;
+    if (viewMode === 'week') {
+      startPadding = -14;
+      endPadding = 28;
+    } else if (viewMode === 'month') {
+      startPadding = -60;
+      endPadding = 120;
+    }
+
+    min = addDays(min, startPadding);
+    max = addDays(max, endPadding);
+
+    if (viewMode === 'week') {
+      // Align min to Sunday
+      const day = min.getDay();
+      min = addDays(min, -day);
+    } else if (viewMode === 'month') {
+      // Align min to 1st of the month
+      min = new Date(min.getFullYear(), min.getMonth(), 1);
+    }
+
+    const days = differenceInCalendarDays(max, min) + 1;
+    const width = days * colWidth + PADDING_X * 2;
+    const bHeight = visibleTasks.length * ROW_HEIGHT + 50;
+
+    return { minDate: min, maxDate: max, totalDays: days, totalWidth: width, barsHeight: bHeight };
+  }, [visibleTasks, viewMode, colWidth]);
+
+  const getX = useCallback((dateStr: string): number => {
+    return differenceInCalendarDays(toDate(dateStr), minDate) * colWidth + PADDING_X;
+  }, [minDate, colWidth]);
+
+  const getDate = useCallback((x: number): string => {
+    const dayOffset = Math.round((x - PADDING_X) / colWidth);
+    return fromDate(addDays(minDate, dayOffset));
+  }, [minDate, colWidth]);
+
+  const todayStr = fromDate(new Date());
+
+  // Sync horizontal scroll between header and bars
+  useEffect(() => {
+    const scrollEl = scrollRef.current;
+    const headerEl = headerRef.current;
+    if (!scrollEl || !headerEl) return;
+
+    const onScroll = () => {
+      headerEl.scrollLeft = scrollEl.scrollLeft;
+    };
+
+    scrollEl.addEventListener('scroll', onScroll, { passive: true });
+    return () => scrollEl.removeEventListener('scroll', onScroll);
+  }, []);
+
+  const handleBarMouseDown = (e: React.MouseEvent, taskId: string, startDate: string, endDate: string, duration: number, mode: DragMode) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const svgEl = svgRef.current;
+    if (!svgEl) return;
+    const rect = svgEl.getBoundingClientRect();
+    const startX = e.clientX - rect.left;
+    dragRef.current = { taskId, mode, startX, originalStartDate: startDate, originalEndDate: endDate, originalDuration: duration };
+    currentXRef.current = startX;
+    setRenderX(startX);
+    setIsDragging(true);
+  };
+
+  const handleResizeMouseDown = (e: React.MouseEvent, taskId: string, startDate: string, endDate: string, duration: number) => {
+    handleBarMouseDown(e, taskId, startDate, endDate, duration, 'resize');
+  };
+
+  const handleMoveMouseDown = (e: React.MouseEvent, taskId: string, startDate: string, endDate: string, duration: number) => {
+    handleBarMouseDown(e, taskId, startDate, endDate, duration, 'move');
+  };
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const svgEl = svgRef.current;
+      if (!svgEl) return;
+      const rect = svgEl.getBoundingClientRect();
+      currentXRef.current = e.clientX - rect.left;
+      setRenderX(currentXRef.current);
+    };
+
+    const handleMouseUp = () => {
+      const dragging = dragRef.current;
+      if (dragging) {
+        const currentX = currentXRef.current;
+        if (dragging.mode === 'move') {
+          const offsetX = currentX - dragging.startX;
+          const dayOffset = Math.round(offsetX / colWidth);
+          if (dayOffset !== 0) {
+            const originalStart = toDate(dragging.originalStartDate);
+            const originalEnd = toDate(dragging.originalEndDate);
+            const newStart = fromDate(addDays(originalStart, dayOffset));
+            const newEnd = fromDate(addDays(originalEnd, dayOffset));
+            dispatch({ type: 'UPDATE_TASK', id: dragging.taskId, changes: { startDate: newStart, endDate: newEnd } });
+          }
+        } else {
+          const originalEnd = toDate(dragging.originalEndDate);
+          const originalEndX = differenceInCalendarDays(toDate(dragging.originalEndDate), minDate) * colWidth + PADDING_X;
+          const offsetX = currentX - originalEndX;
+          const dayOffset = Math.round(offsetX / colWidth);
+          if (dayOffset !== 0) {
+            const newEnd = fromDate(addDays(originalEnd, dayOffset));
+            const startDate = dragging.originalStartDate;
+            const newEndDate = toDate(newEnd);
+            const startDateObj = toDate(startDate);
+            if (newEndDate <= startDateObj) {
+              const clampedEnd = addDays(startDateObj, 1);
+              dispatch({ type: 'UPDATE_TASK', id: dragging.taskId, changes: { endDate: fromDate(clampedEnd) } });
+            } else {
+              dispatch({ type: 'UPDATE_TASK', id: dragging.taskId, changes: { endDate: newEnd } });
+            }
+          }
+        }
+      }
+      dragRef.current = null;
+      setIsDragging(false);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, dispatch, minDate, colWidth]);
+
+  // Timeline header dates
+  const timelineDates = useMemo(() => {
+    return Array.from({ length: totalDays }, (_, i) => {
+      const date = addDays(minDate, i);
+      const x = i * colWidth + PADDING_X;
+      return { date, x };
+    });
+  }, [minDate, totalDays, colWidth]);
+
+  // Top header cells
+  const topHeaderCells = useMemo(() => {
+    const cells: { key: string; x: number; width: number; label: string }[] = [];
+    
+    if (viewMode === 'month') {
+      const yearBlocks: { year: number; startIdx: number; endIdx: number }[] = [];
+      timelineDates.forEach((td, i) => {
+        const y = td.date.getFullYear();
+        if (yearBlocks.length === 0 || yearBlocks[yearBlocks.length - 1].year !== y) {
+          yearBlocks.push({ year: y, startIdx: i, endIdx: i });
+        } else {
+          yearBlocks[yearBlocks.length - 1].endIdx = i;
+        }
+      });
+      yearBlocks.forEach((block, idx) => {
+        const startX = timelineDates[block.startIdx].x;
+        const endX = timelineDates[block.endIdx].x + colWidth;
+        cells.push({
+          key: `year-${block.year}-${idx}`,
+          x: startX,
+          width: endX - startX,
+          label: `${block.year}年`,
+        });
+      });
+    } else {
+      const monthBlocks: { month: number; year: number; startIdx: number; endIdx: number }[] = [];
+      timelineDates.forEach((td, i) => {
+        const m = td.date.getMonth();
+        const y = td.date.getFullYear();
+        if (monthBlocks.length === 0 || monthBlocks[monthBlocks.length - 1].month !== m || monthBlocks[monthBlocks.length - 1].year !== y) {
+          monthBlocks.push({ month: m, year: y, startIdx: i, endIdx: i });
+        } else {
+          monthBlocks[monthBlocks.length - 1].endIdx = i;
+        }
+      });
+      const monthNames = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+      monthBlocks.forEach((block, idx) => {
+        const startX = timelineDates[block.startIdx].x;
+        const endX = timelineDates[block.endIdx].x + colWidth;
+        const showYear = idx === 0 || monthBlocks[idx - 1].year !== block.year;
+        const label = showYear ? `${block.year}年 ${monthNames[block.month]}` : monthNames[block.month];
+        cells.push({
+          key: `month-${block.year}-${block.month}-${idx}`,
+          x: startX,
+          width: endX - startX,
+          label,
+        });
+      });
+    }
+    
+    return cells;
+  }, [viewMode, timelineDates, colWidth]);
+
+  // Bottom header cells
+  const bottomHeaderCells = useMemo(() => {
+    const cells: { key: string; x: number; width: number; label: string; isWeekend?: boolean; isToday?: boolean; isSun?: boolean; isSat?: boolean }[] = [];
+    
+    if (viewMode === 'day') {
+      timelineDates.forEach(({ date, x }) => {
+        const dayOfWeek = date.getDay();
+        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+        const isSun = dayOfWeek === 0;
+        const isSat = dayOfWeek === 6;
+        const isToday = fromDate(date) === todayStr;
+        cells.push({
+          key: `day-${x}`,
+          x,
+          width: colWidth,
+          label: String(date.getDate()),
+          isWeekend,
+          isToday,
+          isSun,
+          isSat,
+        });
+      });
+    } else if (viewMode === 'week') {
+      timelineDates.forEach(({ date, x }, idx) => {
+        if (date.getDay() === 0 || idx === 0) {
+          let nextSundayIdx = timelineDates.findIndex((td, i) => i > idx && td.date.getDay() === 0);
+          if (nextSundayIdx === -1) {
+            nextSundayIdx = timelineDates.length;
+          }
+          const daysSpan = nextSundayIdx - idx;
+          const width = daysSpan * colWidth;
+          cells.push({
+            key: `week-${x}`,
+            x,
+            width,
+            label: `${date.getMonth() + 1}/${date.getDate()}`,
+          });
+        }
+      });
+    } else if (viewMode === 'month') {
+      timelineDates.forEach(({ date, x }, idx) => {
+        if (date.getDate() === 1 || idx === 0) {
+          let nextMonthIdx = timelineDates.findIndex((td, i) => i > idx && td.date.getDate() === 1);
+          if (nextMonthIdx === -1) {
+            nextMonthIdx = timelineDates.length;
+          }
+          const daysSpan = nextMonthIdx - idx;
+          const width = daysSpan * colWidth;
+          cells.push({
+            key: `month-${x}`,
+            x,
+            width,
+            label: `${date.getMonth() + 1}月`,
+          });
+        }
+      });
+    }
+    
+    return cells;
+  }, [viewMode, timelineDates, colWidth, todayStr]);
+
+  // Weekend columns
+  const weekendBgs = useMemo(() => {
+    if (viewMode === 'month') return [];
+    
+    const bgs: { x: number; width: number }[] = [];
+    timelineDates.forEach(({ date, x }) => {
+      const dayOfWeek = date.getDay();
+      if (dayOfWeek === 0 || dayOfWeek === 6) {
+        bgs.push({ x, width: colWidth });
+      }
+    });
+    return bgs;
+  }, [viewMode, timelineDates, colWidth]);
+
+  const cursorStyle = isDragging
+    ? (dragRef.current?.mode === 'resize' ? 'ew-resize' : 'grabbing')
+    : 'default';
+
+  return (
+    <div className={styles.wrapper} ref={wrapperRef} style={{ cursor: cursorStyle }}>
+      {/* Sticky timeline header */}
+      <div
+        className={styles.headerSticky}
+        ref={headerRef}
+        style={{ overflow: 'hidden', height: HEADER_HEIGHT }}
+      >
+        <svg
+          width={totalWidth}
+          height={HEADER_HEIGHT - 1}
+          className={styles.headerSvg}
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          {/* Month row background */}
+          <rect x={0} y={0} width={totalWidth} height={18} className={styles.weekendBg} />
+
+          {/* Month blocks (Top row) */}
+          {topHeaderCells.map((cell) => {
+            const centerX = cell.x + cell.width / 2;
+            return (
+              <g key={cell.key}>
+                <line x1={cell.x} y1={0} x2={cell.x} y2={18} className={styles.gridLine} />
+                <text x={centerX} y={13} className={styles.timelineText} textAnchor="middle">
+                  {cell.label}
+                </text>
+              </g>
+            );
+          })}
+          {topHeaderCells.length > 0 && (() => {
+            const last = topHeaderCells[topHeaderCells.length - 1];
+            const endX = last.x + last.width;
+            return <line x1={endX} y1={0} x2={endX} y2={18} className={styles.gridLine} />;
+          })()}
+
+          {/* Separator line between month and day rows */}
+          <line x1={0} y1={18} x2={totalWidth} y2={18} className={styles.gridLine} />
+
+          {/* Day row (Bottom row) */}
+          {bottomHeaderCells.map((cell) => {
+            const centerX = cell.x + cell.width / 2;
+            return (
+              <g key={cell.key}>
+                {cell.isWeekend && (
+                  <rect x={cell.x} y={18} width={cell.width} height={19} className={styles.weekendBg} />
+                )}
+                <line x1={cell.x} y1={18} x2={cell.x} y2={HEADER_HEIGHT - 1} className={styles.gridLine} />
+                {cell.isToday && (
+                  <rect
+                    x={cell.x + cell.width / 2 - 9}
+                    y={18.5}
+                    width={18}
+                    height={18}
+                    fill="#e74c3c"
+                    rx={9}
+                  />
+                )}
+                <text
+                  x={centerX}
+                  y={30}
+                  className={styles.timelineText}
+                  textAnchor="middle"
+                  fill={cell.isToday ? '#ffffff' : cell.isSun ? '#e74c3c' : cell.isSat ? '#5a8fbf' : undefined}
+                  style={cell.isToday ? { fontWeight: 'bold' } : undefined}
+                >
+                  {cell.label}
+                </text>
+              </g>
+            );
+          })}
+          {bottomHeaderCells.length > 0 && (() => {
+            const last = bottomHeaderCells[bottomHeaderCells.length - 1];
+            const endX = last.x + last.width;
+            return <line x1={endX} y1={18} x2={endX} y2={HEADER_HEIGHT - 1} className={styles.gridLine} />;
+          })()}
+        </svg>
+      </div>
+
+      {/* Scrollable task bars area */}
+      <div className={styles.scrollArea} ref={scrollRef} style={{ overflow: 'auto' }}>
+        <svg
+          ref={svgRef}
+          width={totalWidth}
+          height={barsHeight}
+          className={styles.barsSvg}
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <defs>
+            <linearGradient id="task-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stopColor="var(--task-bar-start)" />
+              <stop offset="100%" stopColor="var(--task-bar-end)" />
+            </linearGradient>
+            <linearGradient id="summary-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stopColor="var(--summary-bar-start)" />
+              <stop offset="100%" stopColor="var(--summary-bar-end)" />
+            </linearGradient>
+            <linearGradient id="milestone-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="var(--milestone-start)" />
+              <stop offset="100%" stopColor="var(--milestone-end)" />
+            </linearGradient>
+          </defs>
+
+          {/* Weekend background columns */}
+          {weekendBgs.map((bg, idx) => (
+            <rect key={idx} x={bg.x} y={0} width={bg.width} height={barsHeight} className={styles.weekendBg} />
+          ))}
+
+          {/* Vertical grid lines */}
+          {bottomHeaderCells.map((cell) => (
+            <line key={cell.key} x1={cell.x} y1={0} x2={cell.x} y2={barsHeight} className={styles.gridLine} />
+          ))}
+          {bottomHeaderCells.length > 0 && (() => {
+            const last = bottomHeaderCells[bottomHeaderCells.length - 1];
+            const endX = last.x + last.width;
+            return <line x1={endX} y1={0} x2={endX} y2={barsHeight} className={styles.gridLine} />;
+          })()}
+
+          {/* Horizontal grid lines */}
+          {Array.from({ length: visibleTasks.length + 1 }, (_, i) => {
+            const y = i * ROW_HEIGHT;
+            return (
+              <line key={i} x1={0} y1={y} x2={totalWidth} y2={y} className={styles.gridLine} />
+            );
+          })}
+
+          {/* Today line */}
+          {(() => {
+            const todayX = getX(todayStr);
+            if (todayX >= 0 && todayX <= totalWidth) {
+              return (
+                <line x1={todayX} y1={0} x2={todayX} y2={barsHeight} className={styles.todayLine} />
+              );
+            }
+            return null;
+          })()}
+
+          {/* Task bars */}
+          {visibleTasks.map((task, i) => {
+            const y = i * ROW_HEIGHT + BAR_Y_OFFSET;
+            const d = dragRef.current;
+            const isBeingDragged = isDragging && d?.taskId === task.id;
+            const isResizing = isBeingDragged && d?.mode === 'resize';
+            const isMoving = isBeingDragged && d?.mode === 'move';
+
+            const originalX1 = getX(task.startDate);
+            const originalX2 = getX(task.endDate);
+
+            const x1 = isMoving ? originalX1 + (currentXRef.current - d!.startX) : originalX1;
+            let barWidth: number;
+            if (isResizing) {
+              const resizeDelta = currentXRef.current - getX(d!.originalEndDate);
+              barWidth = Math.max(4, (originalX2 - originalX1) + resizeDelta);
+            } else {
+              barWidth = Math.max(4, originalX2 - originalX1);
+            }
+
+            const hasChildren = project.tasks.some(t => t.parentId === task.id);
+
+            if (task.isMilestone) {
+              const cx = x1 + colWidth / 2;
+              const cy = y + BAR_HEIGHT / 2;
+              const points = [
+                `${cx},${cy - MILESTONE_SIZE}`,
+                `${cx + MILESTONE_SIZE},${cy}`,
+                `${cx},${cy + MILESTONE_SIZE}`,
+                `${cx - MILESTONE_SIZE},${cy}`,
+              ].join(' ');
+              return (
+                <polygon
+                  key={task.id}
+                  data-task-id={task.id}
+                  points={points}
+                  className={styles.milestoneDiamond}
+                  style={{ cursor: isBeingDragged ? 'grabbing' : 'grab', opacity: isBeingDragged ? 0.6 : 1 }}
+                  onMouseDown={(e) => handleMoveMouseDown(e, task.id, task.startDate, task.endDate, task.duration)}
+                />
+              );
+            }
+
+            if (hasChildren) {
+              const dPath = [
+                `M ${x1} ${y}`,
+                `H ${x1 + barWidth}`,
+                `V ${y + 16}`,
+                `L ${x1 + barWidth - 6} ${y + 9}`,
+                `H ${x1 + 6}`,
+                `L ${x1} ${y + 16}`,
+                `Z`
+              ].join(' ');
+
+              return (
+                <g key={task.id} data-task-id={task.id}>
+                  <path
+                     d={dPath}
+                     className={styles.summaryBar}
+                     style={{
+                       cursor: isBeingDragged ? 'grabbing' : 'grab',
+                       opacity: isBeingDragged ? 0.6 : 1,
+                     }}
+                     onMouseDown={(e) => handleMoveMouseDown(e, task.id, task.startDate, task.endDate, task.duration)}
+                  />
+                  <rect
+                    x={x1 + barWidth - RESIZE_HANDLE_WIDTH}
+                    y={y}
+                    width={RESIZE_HANDLE_WIDTH}
+                    height={BAR_HEIGHT}
+                    fill="transparent"
+                    style={{ cursor: 'ew-resize' }}
+                    onMouseDown={(e) => handleResizeMouseDown(e, task.id, task.startDate, task.endDate, task.duration)}
+                  />
+                </g>
+              );
+            }
+
+            return (
+              <g key={task.id} data-task-id={task.id}>
+                <rect
+                  x={x1}
+                  y={y}
+                  width={barWidth}
+                  height={BAR_HEIGHT}
+                  className={styles.taskBar}
+                  rx={3}
+                  ry={3}
+                  style={{
+                    cursor: isBeingDragged ? (isResizing ? 'ew-resize' : 'grabbing') : 'grab',
+                    opacity: isBeingDragged ? 0.6 : 1,
+                    transition: isBeingDragged ? 'none' : 'opacity 0.1s',
+                  }}
+                  onMouseDown={(e) => handleMoveMouseDown(e, task.id, task.startDate, task.endDate, task.duration)}
+                />
+                <rect
+                  x={x1 + barWidth - RESIZE_HANDLE_WIDTH}
+                  y={y}
+                  width={RESIZE_HANDLE_WIDTH}
+                  height={BAR_HEIGHT}
+                  fill="transparent"
+                  style={{ cursor: 'ew-resize' }}
+                  onMouseDown={(e) => handleResizeMouseDown(e, task.id, task.startDate, task.endDate, task.duration)}
+                />
+              </g>
+            );
+          })}
+
+          {/* Drag ghost */}
+          {isDragging && dragRef.current && (
+            <>
+              <line x1={renderX} y1={0} x2={renderX} y2={barsHeight} stroke="#007acc" strokeWidth={1} strokeDasharray="4 2" />
+              <text x={renderX + 4} y={14} fill="#007acc" fontSize={11} fontFamily="system-ui">
+                {dragRef.current.mode === 'resize' ? `${getDate(renderX)} まで` : getDate(renderX)}
+              </text>
+            </>
+          )}
+        </svg>
+      </div>
+    </div>
+  );
+}

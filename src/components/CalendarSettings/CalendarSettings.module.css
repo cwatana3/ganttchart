@@ -1,0 +1,134 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.dialog {
+  background: var(--bg-color, #1e1e1e);
+  border: 1px solid var(--border-color, #3a3a3a);
+  border-radius: 8px;
+  padding: 20px 24px;
+  min-width: 360px;
+  max-width: 480px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 16px 0;
+}
+
+.section {
+  margin-bottom: 16px;
+}
+
+.sectionLabel {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text-muted);
+}
+
+.dayGrid {
+  display: flex;
+  gap: 4px;
+}
+
+.dayButton {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-color);
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dayButton.active {
+  background: var(--accent-color);
+  border-color: var(--accent-color);
+  color: white;
+}
+
+.holidayList {
+  max-height: 120px;
+  overflow-y: auto;
+  margin-bottom: 8px;
+}
+
+.holidayItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 13px;
+}
+
+.removeButton {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 4px;
+}
+
+.removeButton:hover {
+  color: #e74c3c;
+}
+
+.addHolidayRow {
+  display: flex;
+  gap: 8px;
+}
+
+.dateInput {
+  flex: 1;
+  padding: 4px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: #333;
+  color: var(--text-color);
+  font-size: 13px;
+}
+
+.addButton {
+  padding: 4px 12px;
+  border: 1px solid var(--accent-color);
+  border-radius: 4px;
+  background: var(--accent-color);
+  color: white;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.closeButton {
+  padding: 6px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-color);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.closeButton:hover {
+  background: var(--hover-bg, #353535);
+}

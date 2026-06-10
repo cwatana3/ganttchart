@@ -1,0 +1,148 @@
+.table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+}
+
+.headerRow th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--header-bg);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.headerCell {
+  padding: 0 8px;
+  text-align: left;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 600;
+  white-space: nowrap;
+  vertical-align: middle;
+  height: 38px;
+  position: relative;
+}
+
+.resizeHandle {
+  position: absolute;
+  right: -4px;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  z-index: 3;
+}
+
+.resizeHandle::after {
+  content: '';
+  position: absolute;
+  right: 3px;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  background: transparent;
+  border-radius: 1px;
+  transition: background 0.15s;
+}
+
+.resizeHandle:hover::after {
+  background: var(--accent-color);
+}
+
+.resizeHandle:active::after {
+  background: var(--accent-color);
+}
+
+.row {
+  cursor: pointer;
+  height: 34px;
+}
+
+.row:hover {
+  background: var(--hover-bg);
+}
+
+.row.selected {
+  background: var(--selected-bg);
+}
+
+.dragging {
+  opacity: 0.4;
+}
+
+.dropBefore {
+  box-shadow: 0 -2px 0 var(--accent-color);
+}
+
+.dropAfter {
+  box-shadow: 0 2px 0 var(--accent-color);
+}
+
+.dropInside {
+  background: var(--hover-bg);
+  outline: 2px solid var(--accent-color);
+  outline-offset: -2px;
+}
+
+.headerCell:not(:last-child) {
+  border-right: 1px solid var(--border-color);
+}
+
+.cell {
+  padding: 0 8px;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.cell:not(:last-child) {
+  border-right: 1px solid var(--border-color);
+}
+
+.expandButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 10px;
+  padding: 0;
+  margin-right: 2px;
+  flex-shrink: 0;
+}
+
+.expandButton:hover {
+  color: var(--text-color);
+}
+
+.taskNameWrapper {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-left: calc(var(--indent, 0) * 16px);
+}
+
+.milestoneMark {
+  color: #e8a838;
+  margin-right: 4px;
+}
+
+.editInput {
+  width: 100%;
+  border: 1px solid var(--accent-color);
+  background: var(--bg-color);
+  color: var(--text-color);
+  font-size: 13px;
+  padding: 2px 4px;
+  outline: none;
+  border-radius: 2px;
+}
