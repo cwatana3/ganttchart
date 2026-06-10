@@ -30,8 +30,7 @@ const DARK = {
   milestoneStart: '#fbbf24',
   milestoneStroke: '#b45309',
   today: '#e74c3c',
-  weekendBg: 'rgba(255, 255, 255, 0.03)',
-  rowAlt: 'rgba(255, 255, 255, 0.01)',
+  weekendBg: '#252525',
   sunText: '#e74c3c',
   satText: '#5a8fbf',
 } as const;
@@ -53,8 +52,7 @@ const LIGHT = {
   milestoneStart: '#fcd34d',
   milestoneStroke: '#d97706',
   today: '#e74c3c',
-  weekendBg: 'rgba(0, 0, 0, 0.03)',
-  rowAlt: 'rgba(0, 0, 0, 0.01)',
+  weekendBg: '#f2f2f2',
   sunText: '#e74c3c',
   satText: '#5a8fbf',
 } as const;
@@ -77,7 +75,6 @@ interface Colors {
   milestoneStroke: string;
   today: string;
   weekendBg: string;
-  rowAlt: string;
   sunText: string;
   satText: string;
 }
@@ -500,22 +497,6 @@ export function exportToSVG(project: Project, light: boolean, viewMode: 'day' | 
   milestoneGrad.appendChild(milestoneStop2);
   defs.appendChild(milestoneGrad);
 
-  // Drop shadow filter
-  const filter = svgEl('filter');
-  filter.setAttribute('id', 'shadow');
-  filter.setAttribute('x', '-10%');
-  filter.setAttribute('y', '-10%');
-  filter.setAttribute('width', '120%');
-  filter.setAttribute('height', '120%');
-  const feDropShadow = svgEl('feDropShadow');
-  feDropShadow.setAttribute('dx', '0');
-  feDropShadow.setAttribute('dy', '1');
-  feDropShadow.setAttribute('stdDeviation', '1');
-  feDropShadow.setAttribute('flood-color', '#000000');
-  feDropShadow.setAttribute('flood-opacity', '0.15');
-  filter.appendChild(feDropShadow);
-  defs.appendChild(filter);
-
   svg.appendChild(defs);
 
   // ================================================================
@@ -537,10 +518,6 @@ export function exportToSVG(project: Project, light: boolean, viewMode: 'day' | 
     const depth = getDepth(task.id, project.tasks);
     const rowY = HEADER_H + i * ROW_H;
     const rowMidY = rowY + ROW_H / 2 + 4;
-
-    const rowBg = rectEl(0, rowY, tableW, ROW_H, i % 2 === 0 ? C.bg : C.rowAlt);
-    rowBg.setAttribute('shape-rendering', 'crispEdges');
-    svg.appendChild(rowBg);
 
     for (let c = 0; c < specs.length; c++) {
       const raw = specs[c].getValue(task, depth);
@@ -607,12 +584,7 @@ export function exportToSVG(project: Project, light: boolean, viewMode: 'day' | 
     chart.appendChild(lineEl(endX, 18, endX, HEADER_H, C.border, 1));
   }
 
-  for (let i = 0; i < visibleTasks.length; i++) {
-    const rowY = HEADER_H + i * ROW_H;
-    const rBg = rectEl(0, rowY, chartW, ROW_H, i % 2 === 0 ? C.bg : C.rowAlt);
-    rBg.setAttribute('shape-rendering', 'crispEdges');
-    chart.appendChild(rBg);
-  }
+
 
   // Weekend background columns in bars
   weekendBgs.forEach((bg) => {
@@ -660,7 +632,6 @@ export function exportToSVG(project: Project, light: boolean, viewMode: 'day' | 
       poly.setAttribute('fill', 'url(#milestone-gradient)');
       poly.setAttribute('stroke', C.milestoneStroke);
       poly.setAttribute('stroke-width', '1');
-      poly.setAttribute('filter', 'url(#shadow)');
       chart.appendChild(poly);
     } else if (isSummary) {
       const dPath = [
@@ -677,12 +648,10 @@ export function exportToSVG(project: Project, light: boolean, viewMode: 'day' | 
       path.setAttribute('fill', 'url(#summary-gradient)');
       path.setAttribute('stroke', C.summaryBarStroke);
       path.setAttribute('stroke-width', '1');
-      path.setAttribute('filter', 'url(#shadow)');
       chart.appendChild(path);
     } else {
       const rect = rectEl(x1, barY, w, BAR_H, 'url(#task-gradient)', C.taskBarStroke, 3);
       rect.setAttribute('stroke-width', '1');
-      rect.setAttribute('filter', 'url(#shadow)');
       chart.appendChild(rect);
     }
   }

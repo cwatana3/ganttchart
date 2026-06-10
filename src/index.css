@@ -1,58 +1,78 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap');
+
 :root {
-  --bg-color: #1e1e1e;
-  --toolbar-bg: #2c2c2c;
-  --header-bg: #252525;
-  --border-color: #2d2d2d;
-  --text-color: #e0e0e0;
-  --text-muted: #888;
-  --accent-color: #007acc;
-  --hover-bg: #353535;
-  --active-bg: #404040;
-  --selected-bg: #2a4a6d;
-  --input-bg: #333;
-  --milestone-color: #e8a838;
-  --weekend-bg: rgba(255, 255, 255, 0.03);
+  /* HSL tailored dark mode (deep space navy) */
+  --bg-color: #080c14;
+  --toolbar-bg: rgba(15, 23, 42, 0.85);
+  --header-bg: #0f172a;
+  --border-color: rgba(255, 255, 255, 0.08);
+  --text-color: #f1f5f9;
+  --text-muted: #64748b;
+  --accent-color: #6366f1; /* Indigo */
+  --accent-gradient: linear-gradient(135deg, #8b5cf6, #6366f1);
+  --hover-bg: rgba(255, 255, 255, 0.05);
+  --active-bg: rgba(255, 255, 255, 0.1);
+  --selected-bg: rgba(99, 102, 241, 0.18);
+  --input-bg: #0f172a;
+  --milestone-color: #fbbf24;
+  --weekend-bg: rgba(255, 255, 255, 0.015);
   
   /* Task gradients */
-  --task-bar-start: #3b82f6;
-  --task-bar-end: #1d4ed8;
-  --task-bar-stroke: #1e40af;
+  --task-bar-start: #8b5cf6;
+  --task-bar-end: #6366f1;
+  --task-bar-stroke: #4f46e5;
   
   /* Summary (parent) gradients */
-  --summary-bar-start: #4b5563;
-  --summary-bar-end: #374151;
-  --summary-bar-stroke: #1f2937;
+  --summary-bar-start: #64748b;
+  --summary-bar-end: #334155;
+  --summary-bar-stroke: #1e293b;
   
   /* Milestone gradients */
   --milestone-start: #fbbf24;
-  --milestone-end: #d97706;
-  --milestone-stroke: #b45309;
+  --milestone-end: #f59e0b;
+  --milestone-stroke: #d97706;
+
+  /* Typography */
+  --font-header: 'Outfit', system-ui, -apple-system, sans-serif;
+  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.2), 0 4px 6px -2px rgba(0, 0, 0, 0.1);
+  --shadow-glass: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
 }
 
 [data-theme="light"] {
-  --bg-color: #ffffff;
-  --toolbar-bg: #f5f5f5;
-  --header-bg: #ebebeb;
-  --border-color: #e5e5e5;
-  --text-color: #222222;
-  --text-muted: #666;
-  --accent-color: #007acc;
-  --hover-bg: #e8e8e8;
-  --active-bg: #ddd;
-  --selected-bg: #d0e4f7;
-  --input-bg: #f0f0f0;
-  --milestone-color: #e8a838;
-  --weekend-bg: rgba(0, 0, 0, 0.03);
+  /* Premium light mode (slate backdrop, clean borders) */
+  --bg-color: #f8fafc;
+  --toolbar-bg: rgba(255, 255, 255, 0.85);
+  --header-bg: #f1f5f9;
+  --border-color: rgba(15, 23, 42, 0.08);
+  --text-color: #0f172a;
+  --text-muted: #64748b;
+  --accent-color: #4f46e5;
+  --accent-gradient: linear-gradient(135deg, #6366f1, #4f46e5);
+  --hover-bg: rgba(15, 23, 42, 0.04);
+  --active-bg: rgba(15, 23, 42, 0.08);
+  --selected-bg: rgba(99, 102, 241, 0.08);
+  --input-bg: #ffffff;
+  --milestone-color: #d97706;
+  --weekend-bg: rgba(0, 0, 0, 0.015);
   
   /* Task gradients */
-  --task-bar-start: #60a5fa;
-  --task-bar-end: #2563eb;
-  --task-bar-stroke: #1d4ed8;
+  --task-bar-start: #818cf8;
+  --task-bar-end: #4f46e5;
+  --task-bar-stroke: #3730a3;
   
   /* Summary (parent) gradients */
-  --summary-bar-start: #9ca3af;
-  --summary-bar-end: #6b7280;
-  --summary-bar-stroke: #4b5563;
+  --summary-bar-start: #94a3b8;
+  --summary-bar-end: #475569;
+  --summary-bar-stroke: #334155;
   
   /* Milestone gradients */
   --milestone-start: #fcd34d;
@@ -74,9 +94,43 @@ html, body, #root {
 }
 
 body {
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: var(--font-body);
   background: var(--bg-color);
   color: var(--text-color);
-  font-size: 14px;
+  font-size: 13.5px;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-header);
+}
+
+/* Custom modern scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 99px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* Scrollbar styling for Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color) transparent;
 }

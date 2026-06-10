@@ -10,6 +10,7 @@ interface ColWidths {
   startDate: number;
   endDate: number;
   assignee: number;
+  dependencies: number;
 }
 
 interface TaskRowProps {
@@ -20,7 +21,7 @@ interface TaskRowProps {
   showDropAfter: boolean;
   showDropInside: boolean;
   colWidths: ColWidths;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, ctrlKey: boolean, shiftKey: boolean) => void;
   onDragStart: (id: string) => void;
   onDragOver: (e: React.DragEvent, id: string) => void;
   onDrop: (e: React.DragEvent, id: string) => void;
@@ -75,6 +76,17 @@ export function TaskRow({
       case 'assignee':
         changes.assignee = editValue;
         break;
+      case 'dependencies': {
+        const nums = editValue
+          .split(',')
+          .map(s => parseInt(s.trim(), 10))
+          .filter(n => !isNaN(n) && n > 0 && n <= project.tasks.length);
+        const depIds = nums
+          .map(num => project.tasks[num - 1]?.id)
+          .filter(Boolean);
+        changes.dependencies = depIds;
+        break;
+      }
     }
 
     dispatch({ type: 'UPDATE_TASK', id: task.id, changes });
@@ -102,12 +114,20 @@ export function TaskRow({
           onChange={e => setEditValue(e.target.value)}
           onBlur={commitEdit}
           onKeyDown={handleKeyDown}
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
           autoFocus
         />
       );
     }
     return (
-      <span onClick={() => startEdit(field, value)} style={{ cursor: 'text' }}>
+      <span
+        onClick={(e) => {
+          e.stopPropagation();
+          startEdit(field, value);
+        }}
+        style={{ cursor: 'text' }}
+      >
         {displayValue ?? value}
       </span>
     );
@@ -131,7 +151,7 @@ export function TaskRow({
       className={rowClass}
       draggable
       data-task-id={task.id}
-      onClick={() => onSelect(task.id)}
+      onClick={(e) => onSelect(task.id, e.ctrlKey || e.metaKey, e.shiftKey)}
       onDragStart={(e) => {
         e.dataTransfer.effectAllowed = 'move';
         e.dataTransfer.setData('text/plain', task.id);
@@ -165,8 +185,22 @@ export function TaskRow({
         {renderCell('endDate', task.endDate)}
       </td>
       <td className={styles.cell} style={colStyle('assignee')}>
-        {renderCell('assignee', task.assignee, task.assignee || '-')}
+        {renderCell('assignee', task.assignee || '', task.assignee || '-')}
       </td>
+      {(() => {
+        const depsValue = (task.dependencies ?? [])
+          .map(dId => {
+            const idx = project.tasks.findIndex(t => t.id === dId);
+            return idx !== -1 ? String(idx + 1) : '';
+          })
+          .filter(Boolean)
+          .join(', ');
+        return (
+          <td className={styles.cell} style={colStyle('dependencies')}>
+            {renderCell('dependencies', depsValue, depsValue || '-')}
+          </td>
+        );
+      })()}
     </tr>
   );
 }
