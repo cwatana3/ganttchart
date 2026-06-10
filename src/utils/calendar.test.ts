@@ -55,7 +55,7 @@ describe('addWorkingDays', () => {
 
 describe('countWorkingDays', () => {
   it('counts 5 working days in a full week', () => {
-    expect(countWorkingDays('2026-06-08', '2026-06-14', defaultCalendar)).toBe(5);
+    expect(countWorkingDays('2026-06-08', '2026-06-15', defaultCalendar)).toBe(5);
   });
 
   it('counts 0 for same start and end', () => {
@@ -64,6 +64,14 @@ describe('countWorkingDays', () => {
 
   it('skips holidays in count', () => {
     expect(countWorkingDays('2026-06-15', '2026-06-17', calendarWithHolidays)).toBe(1);
+  });
+
+  it('is consistent with addWorkingDays', () => {
+    const start = '2026-06-08';
+    for (let d = 0; d <= 10; d++) {
+      const end = addWorkingDays(start, d, defaultCalendar);
+      expect(countWorkingDays(start, end, defaultCalendar)).toBe(d);
+    }
   });
 });
 

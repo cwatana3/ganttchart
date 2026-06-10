@@ -91,3 +91,10 @@ export function canOutdent(taskId: string, tasks: Task[]): boolean {
   const task = tasks.find(t => t.id === taskId);
   return task !== undefined && task.parentId !== null;
 }
+
+export function checkCircularDependency(targetId: string, potentialPredecessorId: string, tasks: Task[]): boolean {
+  const task = tasks.find(t => t.id === potentialPredecessorId);
+  if (!task || !task.dependencies) return false;
+  if (task.dependencies.includes(targetId)) return true;
+  return task.dependencies.some((dId: string) => checkCircularDependency(targetId, dId, tasks));
+}

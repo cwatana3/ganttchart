@@ -30,20 +30,24 @@ function saveManualWidths(widths: Partial<ColWidths>): void {
   } catch {}
 }
 
-let measureEl: HTMLSpanElement | null = null;
+let canvas: HTMLCanvasElement | null = null;
 function measureTextWidth(text: string, fontSize: number, fontFamily: string = 'var(--font-body)', fontWeight: string = 'normal'): number {
-  if (!measureEl) {
-    measureEl = document.createElement('span');
-    measureEl.style.position = 'absolute';
-    measureEl.style.visibility = 'hidden';
-    measureEl.style.whiteSpace = 'nowrap';
-    document.body.appendChild(measureEl);
+  if (!canvas) {
+    canvas = document.createElement('canvas');
   }
-  measureEl.style.fontSize = `${fontSize}px`;
-  measureEl.style.fontFamily = fontFamily;
-  measureEl.style.fontWeight = fontWeight;
-  measureEl.textContent = text;
-  return measureEl.getBoundingClientRect().width;
+  const context = canvas.getContext('2d');
+  if (!context) return text.length * fontSize * 0.6; // fallback
+
+  // Expand CSS variables to real fonts for precise measurement
+  let realFamily = fontFamily;
+  if (fontFamily.includes('var(--font-body)')) {
+    realFamily = 'Inter, system-ui, -apple-system, sans-serif';
+  } else if (fontFamily.includes('var(--font-header)')) {
+    realFamily = 'Outfit, system-ui, -apple-system, sans-serif';
+  }
+
+  context.font = `${fontWeight} ${fontSize}px ${realFamily}`;
+  return context.measureText(text).width;
 }
 
 export function TaskTable() {

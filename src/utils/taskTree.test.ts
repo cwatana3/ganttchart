@@ -10,6 +10,7 @@ import {
   getFlattenedTasks,
   canIndent,
   canOutdent,
+  checkCircularDependency,
 } from './taskTree';
 import type { Task } from '../types';
 
@@ -125,5 +126,28 @@ describe('canOutdent', () => {
 
   it('disallows outdent for root task', () => {
     expect(canOutdent('1', tasks)).toBe(false);
+  });
+});
+
+describe('checkCircularDependency', () => {
+  it('detects direct circular dependency', () => {
+    const testTasks: Task[] = [
+      makeTask({ id: '1', dependencies: ['2'] }),
+      makeTask({ id: '2', dependencies: [] }),
+    ];
+    // Making 2 depend on 1 would create 1 -> 2 -> 1
+    expect(checkCircularDependency('2', '1', testTasks)).toBe(true);
+    // Making 1 depend on 2 is fine
+    expect(checkCircularDependency('1', '2', testTasks)).toBe(false);
+  });
+
+  it('detects indirect circular dependency', () => {
+    const testTasks: Task[] = [
+      makeTask({ id: '1', dependencies: ['2'] }),
+      makeTask({ id: '2', dependencies: ['3'] }),
+      makeTask({ id: '3', dependencies: [] }),
+    ];
+    // Making 3 depend on 1 would create 1 -> 2 -> 3 -> 1
+    expect(checkCircularDependency('3', '1', testTasks)).toBe(true);
   });
 });
