@@ -41,7 +41,7 @@ export function addWorkingDays(startDateStr: string, duration: number, calendar:
 /**
  * startDateStr から endDateStr までの稼働日数を返す（start, end 含む）。
  * startDateStr と endDateStr が同じ場合は 0 を返す。
- * endDate が startDate より前の場合は負の数を返す。
+ * endDate が startDate より前の場合も 0 を返す。
  */
 export function countWorkingDays(startDateStr: string, endDateStr: string, calendar: Calendar): number {
   const start = toDate(startDateStr);

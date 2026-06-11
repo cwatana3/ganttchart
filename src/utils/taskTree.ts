@@ -92,9 +92,22 @@ export function canOutdent(taskId: string, tasks: Task[]): boolean {
   return task !== undefined && task.parentId !== null;
 }
 
+/**
+ * targetId のタスクに potentialPredecessorId を先行タスクとして追加したとき、
+ * 循環依存が発生するかを返す（= potentialPredecessorId が targetId に
+ * 推移的に依存しているか）。
+ */
 export function checkCircularDependency(targetId: string, potentialPredecessorId: string, tasks: Task[]): boolean {
-  const task = tasks.find(t => t.id === potentialPredecessorId);
-  if (!task || !task.dependencies) return false;
-  if (task.dependencies.includes(targetId)) return true;
-  return task.dependencies.some((dId: string) => checkCircularDependency(targetId, dId, tasks));
+  const visited = new Set<string>();
+
+  function dependsOnTarget(taskId: string): boolean {
+    if (visited.has(taskId)) return false;
+    visited.add(taskId);
+    const task = tasks.find(t => t.id === taskId);
+    if (!task || !task.dependencies) return false;
+    if (task.dependencies.includes(targetId)) return true;
+    return task.dependencies.some(dId => dependsOnTarget(dId));
+  }
+
+  return dependsOnTarget(potentialPredecessorId);
 }

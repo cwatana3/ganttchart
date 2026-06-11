@@ -150,4 +150,24 @@ describe('checkCircularDependency', () => {
     // Making 3 depend on 1 would create 1 -> 2 -> 3 -> 1
     expect(checkCircularDependency('3', '1', testTasks)).toBe(true);
   });
+
+  it('allows redundant paths that do not form a cycle', () => {
+    const testTasks: Task[] = [
+      makeTask({ id: '1', dependencies: [] }),
+      makeTask({ id: '2', dependencies: ['1'] }),
+      makeTask({ id: '3', dependencies: ['2'] }),
+    ];
+    // 1 -> 2 -> 3 already exists; adding 1 -> 3 is a diamond, not a cycle
+    expect(checkCircularDependency('3', '1', testTasks)).toBe(false);
+  });
+
+  it('terminates when existing data already contains a cycle', () => {
+    const testTasks: Task[] = [
+      makeTask({ id: '1', dependencies: ['2'] }),
+      makeTask({ id: '2', dependencies: ['1'] }),
+      makeTask({ id: '3', dependencies: [] }),
+    ];
+    expect(checkCircularDependency('3', '1', testTasks)).toBe(false);
+    expect(checkCircularDependency('1', '2', testTasks)).toBe(true);
+  });
 });
