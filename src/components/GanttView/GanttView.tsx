@@ -1,7 +1,7 @@
 import { useMemo, useCallback, useState, useEffect, useRef } from 'react';
 import { useProject } from '../../store/ProjectContext';
 import { getVisibleTasks, checkCircularDependency } from '../../utils/taskTree';
-import { toDate, fromDate } from '../../utils/calendar';
+import { toDate, fromDate, addWorkingDays, countWorkingDays } from '../../utils/calendar';
 import { addDays, differenceInCalendarDays } from 'date-fns';
 import styles from './GanttView.module.css';
 
@@ -197,7 +197,7 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
             if (successorTask) {
               const currentDeps = successorTask.dependencies || [];
               if (!currentDeps.includes(linkingState.fromTaskId)) {
-                const isCircular = checkCircularDependency(linkingState.fromTaskId, toTaskId, project.tasks);
+                const isCircular = checkCircularDependency(toTaskId, linkingState.fromTaskId, project.tasks);
                 if (!isCircular) {
                   dispatch({
                     type: 'UPDATE_TASK',
@@ -234,14 +234,12 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
           if (dayOffset !== 0) {
             const newEnd = fromDate(addDays(originalEnd, dayOffset));
             const startDate = dragging.originalStartDate;
-            const newEndDate = toDate(newEnd);
-            const startDateObj = toDate(startDate);
-            if (newEndDate <= startDateObj) {
-              const clampedEnd = addDays(startDateObj, 1);
-              dispatch({ type: 'UPDATE_TASK', id: dragging.taskId, changes: { endDate: fromDate(clampedEnd) } });
-            } else {
-              dispatch({ type: 'UPDATE_TASK', id: dragging.taskId, changes: { endDate: newEnd } });
-            }
+            // Keep at least one working day, otherwise UPDATE_TASK derives
+            // duration 0 and silently turns the task into a milestone
+            const endDate = countWorkingDays(startDate, newEnd, project.calendar) < 1
+              ? addWorkingDays(startDate, 1, project.calendar)
+              : newEnd;
+            dispatch({ type: 'UPDATE_TASK', id: dragging.taskId, changes: { endDate } });
           }
         }
       }
@@ -255,7 +253,7 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isDragging, linkingState, project.tasks, selectedTaskIds, dispatch, minDate, colWidth]);
+  }, [isDragging, linkingState, project.tasks, project.calendar, selectedTaskIds, dispatch, minDate, colWidth]);
 
   // Timeline header dates
   const timelineDates = useMemo(() => {

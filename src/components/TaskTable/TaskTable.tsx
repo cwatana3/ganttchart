@@ -379,7 +379,7 @@ export function TaskTable() {
         })}
       </tbody>
       <tfoot>
-        <tr style={{ height: 50 }}><td colSpan={5} /></tr>
+        <tr style={{ height: 50 }}><td colSpan={6} /></tr>
       </tfoot>
     </table>
   );

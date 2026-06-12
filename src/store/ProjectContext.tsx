@@ -630,10 +630,10 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     if (!clipboard) return;
 
     const idMap = new Map<string, string>();
-    const newTaskId = crypto.randomUUID();
+    const newTaskId = generateId();
     idMap.set(clipboard.task.id, newTaskId);
     clipboard.descendants.forEach(d => {
-      idMap.set(d.id, crypto.randomUUID());
+      idMap.set(d.id, generateId());
     });
 
     let newParentId: string | null = null;

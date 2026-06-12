@@ -1,4 +1,4 @@
-import type { Project } from '../types';
+import type { Project, Task } from '../types';
 import {
   getVisibleTasks,
   getDepth,
@@ -29,10 +29,10 @@ const DARK = {
   milestone: '#d97706',
   milestoneStart: '#fbbf24',
   milestoneStroke: '#b45309',
-  today: '#e74c3c',
+  today: '#ef4444',
   weekendBg: '#252525',
-  sunText: '#e74c3c',
-  satText: '#5a8fbf',
+  sunText: '#ef4444',
+  satText: '#3b82f6',
 } as const;
 
 const LIGHT = {
@@ -51,10 +51,10 @@ const LIGHT = {
   milestone: '#f59e0b',
   milestoneStart: '#fcd34d',
   milestoneStroke: '#d97706',
-  today: '#e74c3c',
+  today: '#ef4444',
   weekendBg: '#f2f2f2',
-  sunText: '#e74c3c',
-  satText: '#5a8fbf',
+  sunText: '#ef4444',
+  satText: '#3b82f6',
 } as const;
 
 interface Colors {
@@ -81,13 +81,13 @@ interface Colors {
 
 const ROW_H = 34;
 const HEADER_H = 38;
-const BAR_H = 26;
+const BAR_H = 12;
 const MSIZE = 8;
 const PADDING_X = 32;
 const FONT = 'system-ui, sans-serif';
 const COL_PAD = 16;
 const MIN_COL_W = 50;
-const MAX_COL_W = 220;
+const MAX_COL_W = 160;
 const MAX_NAME_W = 400;
 
 function svgEl(tag: string): SVGElement {
@@ -140,8 +140,19 @@ function lineEl(
   return el;
 }
 
+let measureCtx: CanvasRenderingContext2D | null | undefined;
 function textWidth(s: string, fontSize: number): number {
-  return s.length * fontSize * 0.6;
+  if (measureCtx === undefined) {
+    measureCtx = document.createElement('canvas').getContext('2d');
+  }
+  if (!measureCtx) {
+    // Approximation when canvas 2D is unavailable (e.g. jsdom)
+    let w = 0;
+    for (const ch of s) w += ch > 'ÿ' ? fontSize : fontSize * 0.6;
+    return w;
+  }
+  measureCtx.font = `${fontSize}px ${FONT}`;
+  return measureCtx.measureText(s).width;
 }
 
 function truncate(s: string, maxPx: number, fontSize: number): string {
@@ -156,11 +167,11 @@ function truncate(s: string, maxPx: number, fontSize: number): string {
 interface ColSpec {
   key: string;
   label: string;
-  getValue: (task: any, depth: number) => string;
+  getValue: (task: Task) => string;
   fontSize: number;
 }
 
-function getColSpecs(C: Colors): { specs: ColSpec[]; colColor: string } {
+function getColSpecs(C: Colors, tasks: Task[]): { specs: ColSpec[]; colColor: string } {
   return {
     specs: [
       {
@@ -188,37 +199,39 @@ function getColSpecs(C: Colors): { specs: ColSpec[]; colColor: string } {
         getValue: (t) => t.assignee || '-',
         fontSize: 12,
       },
+      {
+        key: 'dependencies', label: '先行',
+        getValue: (t) => (t.dependencies ?? [])
+          .map(dId => {
+            const idx = tasks.findIndex(x => x.id === dId);
+            return idx !== -1 ? String(idx + 1) : '';
+          })
+          .filter(Boolean)
+          .join(', ') || '-',
+        fontSize: 12,
+      },
     ],
     colColor: C.text,
   };
 }
 
-function computeColWidths(tasks: any[], specs: ColSpec[]): {
+function computeColWidths(tasks: Task[], specs: ColSpec[]): {
   tableW: number; colStartX: number[]; colEndX: number[];
 } {
   const headerWidths = specs.map(s => textWidth(s.label, 11) + COL_PAD);
   const dataWidths = specs.map(s =>
     tasks.reduce((max, t) => {
       const d = getDepth(t.id, tasks);
-      let w = textWidth(s.getValue(t, d), s.fontSize);
+      let w = textWidth(s.getValue(t), s.fontSize);
       if (s.key === 'name') {
-        w += d * 16 + 32; // Add tree lines and icon space
+        w += d * 16 + 30; // Add indent and icon space
       }
       return Math.max(max, w);
     }, 0) + COL_PAD,
   );
 
-  let manualWidths: any = {};
-  try {
-    const saved = localStorage.getItem('gannt-column-widths');
-    if (saved) manualWidths = JSON.parse(saved);
-  } catch {}
-
   const widths = specs.map((_, i) => {
     const key = specs[i].key;
-    if (manualWidths[key] !== undefined) {
-      return manualWidths[key];
-    }
     const w = Math.max(headerWidths[i], dataWidths[i], MIN_COL_W);
     if (key === 'name') return Math.min(w, MAX_NAME_W);
     return Math.min(w, MAX_COL_W);
@@ -235,10 +248,10 @@ function computeColWidths(tasks: any[], specs: ColSpec[]): {
 
 // ─── export ────────────────────────────────────────────────────────
 
-export function exportToSVG(project: Project, light: boolean, viewMode: 'day' | 'week' | 'month' = 'day'): void {
+export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' | 'week' | 'month' = 'day'): SVGSVGElement {
   const C: Colors = light ? LIGHT : DARK;
   const visibleTasks = getVisibleTasks(project.tasks);
-  const { specs, colColor } = getColSpecs(C);
+  const { specs, colColor } = getColSpecs(C, project.tasks);
 
   // ─── date range & scaling ──────────────────────────────────
   const colWidth = viewMode === 'week' ? 8 : viewMode === 'month' ? 2 : 32;
@@ -289,10 +302,11 @@ export function exportToSVG(project: Project, light: boolean, viewMode: 'day' | 
 
   const totalDays = differenceInCalendarDays(maxDate, minDate) + 1;
   const chartW = totalDays * colWidth + PADDING_X * 2;
-  const chartH = Math.max(50, visibleTasks.length * ROW_H + 50);
   const { tableW, colStartX, colEndX } = computeColWidths(visibleTasks, specs);
   const svgW = tableW + chartW;
-  const svgH = HEADER_H + chartH;
+  const rowsBottomY = HEADER_H + visibleTasks.length * ROW_H;
+  // +1 so the 1px bottom border is not clipped at the SVG edge
+  const svgH = Math.max(rowsBottomY, HEADER_H + ROW_H) + 1;
 
   function getX(dateStr: string): number {
     return differenceInCalendarDays(toDate(dateStr), minDate) * colWidth + PADDING_X;
@@ -525,7 +539,7 @@ export function exportToSVG(project: Project, light: boolean, viewMode: 'day' | 
     svg.appendChild(textEl(colStartX[c] + 8, HEADER_H / 2 + 4, specs[c].label, C.textMuted, { fontSize: 11, weight: '600' }));
   }
   for (let c = 1; c < specs.length; c++) {
-    svg.appendChild(lineEl(colStartX[c], 0, colStartX[c], svgH, C.border, 1));
+    svg.appendChild(lineEl(colStartX[c], 0, colStartX[c], rowsBottomY, C.border, 1));
   }
 
   for (let i = 0; i < visibleTasks.length; i++) {
@@ -536,42 +550,10 @@ export function exportToSVG(project: Project, light: boolean, viewMode: 'day' | 
 
     for (let c = 0; c < specs.length; c++) {
       const spec = specs[c];
-      const raw = spec.getValue(task, depth);
+      const raw = spec.getValue(task);
 
       if (spec.key === 'name') {
-        const treeLineColor = light ? '#cbd5e1' : '#334155';
-        
-        // 1. Draw vertical lines for ancestors
-        for (let j = 1; j < depth; j++) {
-          const ancestor = getAncestorAtDepth(task, j, project.tasks);
-          if (ancestor && !isLastVisibleChild(ancestor, visibleTasks)) {
-            const lineX = colStartX[0] + 12 + (j - 1) * 16 + 6;
-            const vLine = lineEl(lineX, rowY, lineX, rowY + ROW_H, treeLineColor, 1);
-            vLine.setAttribute('shape-rendering', 'crispEdges');
-            svg.appendChild(vLine);
-          }
-        }
-
-        // 2. Draw branch line for the current task
-        if (depth > 0) {
-          const lineX = colStartX[0] + 12 + (depth - 1) * 16 + 6;
-          const iconAreaLeft = colStartX[0] + 12 + depth * 16;
-          const midY = rowY + ROW_H / 2;
-          
-          // Vertical segment
-          const isLast = isLastVisibleChild(task, visibleTasks);
-          const vLineEnd = isLast ? midY : rowY + ROW_H;
-          const vLine = lineEl(lineX, rowY, lineX, vLineEnd, treeLineColor, 1);
-          vLine.setAttribute('shape-rendering', 'crispEdges');
-          svg.appendChild(vLine);
-          
-          // Horizontal segment
-          const hLine = lineEl(lineX, midY, iconAreaLeft, midY, treeLineColor, 1);
-          hLine.setAttribute('shape-rendering', 'crispEdges');
-          svg.appendChild(hLine);
-        }
-
-        // 3. Draw Icon / Chevron
+        // 1. Draw Icon / Chevron
         const iconX = colStartX[0] + 12 + depth * 16 + 6;
         const iconY = rowY + ROW_H / 2;
         const hasChildren = project.tasks.some(t => t.parentId === task.id);
@@ -602,17 +584,9 @@ export function exportToSVG(project: Project, light: boolean, viewMode: 'day' | 
           diamond.setAttribute('stroke', C.milestoneStroke);
           diamond.setAttribute('stroke-width', '1');
           svg.appendChild(diamond);
-        } else {
-          // Sleek bullet point dot
-          const dot = svgEl('circle');
-          dot.setAttribute('cx', String(iconX));
-          dot.setAttribute('cy', String(iconY));
-          dot.setAttribute('r', '2.5');
-          dot.setAttribute('fill', C.accent);
-          svg.appendChild(dot);
         }
 
-        // 4. Render name text
+        // 2. Render name text
         const textX = colStartX[0] + 12 + depth * 16 + 18;
         const maxPx = colEndX[c] - textX - 8;
         const display = truncate(raw, maxPx, spec.fontSize);
@@ -630,7 +604,7 @@ export function exportToSVG(project: Project, light: boolean, viewMode: 'day' | 
     const rowY = HEADER_H + i * ROW_H;
     svg.appendChild(lineEl(0, rowY, tableW, rowY, C.border, 1));
   }
-  svg.appendChild(lineEl(tableW, 0, tableW, svgH, C.border, 1));
+  svg.appendChild(lineEl(tableW, 0, tableW, rowsBottomY, C.border, 1));
 
   // ================================================================
   //  GANTT CHART SECTION
@@ -668,12 +642,7 @@ export function exportToSVG(project: Project, light: boolean, viewMode: 'day' | 
     }
     chart.appendChild(lineEl(cell.x, 18, cell.x, HEADER_H, C.border, 1));
 
-    if (cell.isToday) {
-      const todayBadge = rectEl(cell.x + cell.width / 2 - 9, 18.5, 18, 18, C.today, undefined, 9);
-      chart.appendChild(todayBadge);
-    }
-
-    const dayFill = cell.isToday ? '#ffffff' : cell.isSun ? C.sunText : cell.isSat ? C.satText : C.textMuted;
+    const dayFill = cell.isToday ? C.today : cell.isSun ? C.sunText : cell.isSat ? C.satText : C.textMuted;
     chart.appendChild(textEl(centerX, 30, cell.label, dayFill, { fontSize: 10, anchor: 'middle', weight: cell.isToday ? 'bold' : undefined }));
   });
   if (bottomHeaderCells.length > 0) {
@@ -709,7 +678,6 @@ export function exportToSVG(project: Project, light: boolean, viewMode: 'day' | 
   if (todayX >= PADDING_X && todayX <= PADDING_X + totalDays * colWidth) {
     const tLine = lineEl(todayX, HEADER_H, todayX, HEADER_H + visibleTasks.length * ROW_H, C.today, 1.5);
     tLine.setAttribute('stroke-dasharray', '4,2');
-    tLine.removeAttribute('shape-rendering');
     chart.appendChild(tLine);
   }
 
@@ -785,15 +753,15 @@ export function exportToSVG(project: Project, light: boolean, viewMode: 'day' | 
       poly.setAttribute('stroke-width', '1');
       chart.appendChild(poly);
     } else if (isSummary) {
-      const dPath = [
-        `M ${x1} ${barY}`,
-        `H ${x1 + w}`,
-        `V ${barY + 16}`,
-        `L ${x1 + w - 6} ${barY + 9}`,
-        `H ${x1 + 6}`,
-        `L ${x1} ${barY + 16}`,
-        `Z`
-      ].join(' ');
+        const dPath = [
+          `M ${x1} ${barY}`,
+          `H ${x1 + w}`,
+          `V ${barY + 14}`,
+          `L ${x1 + w - 4} ${barY + 8}`,
+          `H ${x1 + 4}`,
+          `L ${x1} ${barY + 14}`,
+          `Z`
+        ].join(' ');
       const path = svgEl('path');
       path.setAttribute('d', dPath);
       path.setAttribute('fill', 'url(#summary-gradient)');
@@ -807,8 +775,12 @@ export function exportToSVG(project: Project, light: boolean, viewMode: 'day' | 
     }
   }
 
-  const serializer = new XMLSerializer();
-  const svgString = serializer.serializeToString(svg);
+  return svg;
+}
+
+export function exportToSVG(project: Project, light: boolean, viewMode: 'day' | 'week' | 'month' = 'day'): void {
+  const svg = buildGanttSvg(project, light, viewMode);
+  const svgString = new XMLSerializer().serializeToString(svg);
   const blob = new Blob([svgString], { type: 'image/svg+xml' });
   downloadBlob(blob, `${project.name}.svg`);
 }
@@ -850,24 +822,28 @@ export function validateProject(obj: any): obj is Project {
     if (t.assignee !== undefined && typeof t.assignee !== 'string') return false;
     if (t.dependencies !== undefined && (!Array.isArray(t.dependencies) || !t.dependencies.every((d: any) => typeof d === 'string'))) return false;
   }
-  
-  return true;
-}
 
-function isLastVisibleChild(task: any, visibleTasks: any[]): boolean {
-  const siblings = visibleTasks.filter(t => t.parentId === task.parentId);
-  const idx = siblings.findIndex(t => t.id === task.id);
-  return idx === siblings.length - 1;
-}
-
-function getAncestorAtDepth(task: any, targetDepth: number, tasks: any[]): any | null {
-  let current: any | null = task;
-  const path: any[] = [];
-  while (current) {
-    path.unshift(current);
-    current = current.parentId ? tasks.find(t => t.id === current!.parentId) || null : null;
+  // Structural integrity — duplicate ids, dangling parents, or parent cycles
+  // would hang or corrupt the tree traversal utilities
+  const byId = new Map<string, any>();
+  for (const t of obj.tasks) {
+    if (byId.has(t.id)) return false;
+    byId.set(t.id, t);
   }
-  return path[targetDepth] || null;
+  for (const t of obj.tasks) {
+    if (t.parentId !== null && !byId.has(t.parentId)) return false;
+  }
+  for (const t of obj.tasks) {
+    const seen = new Set<string>([t.id]);
+    let cur = t;
+    while (cur.parentId) {
+      if (seen.has(cur.parentId)) return false;
+      seen.add(cur.parentId);
+      cur = byId.get(cur.parentId);
+    }
+  }
+
+  return true;
 }
 
 export function importFromJSON(file: File): Promise<Project> {
