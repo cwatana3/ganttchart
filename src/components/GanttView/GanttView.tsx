@@ -1,10 +1,12 @@
 import { useMemo, useCallback, useState, useEffect, useRef } from 'react';
 import { useProject } from '../../store/ProjectContext';
 import { getVisibleTasks, checkCircularDependency } from '../../utils/taskTree';
-import { depRefs, depIds } from '../../utils/deps';
+import { depRefs, depIds, toDepRef, formatDepRef } from '../../utils/deps';
+import { isDepViolated } from '../../utils/schedule';
 import { darken } from '../../utils/color';
 import { toDate, fromDate, addWorkingDays, countWorkingDays } from '../../utils/calendar';
 import { addDays, differenceInCalendarDays } from 'date-fns';
+import type { Task } from '../../types';
 import styles from './GanttView.module.css';
 
 const ROW_HEIGHT = 34;
@@ -173,6 +175,12 @@ export function GanttView({ svgRef, wrapperRef, scrollRef, scrollToTodayRef }: G
     currentXRef.current = startX;
     setRenderX(startX);
     setIsDragging(true);
+  };
+
+  const handleDependencyClick = (succ: Task, predTask: Task) => {
+    if (!confirm(`依存関係「${predTask.name}」→「${succ.name}」を削除しますか？`)) return;
+    const newDeps = (succ.dependencies ?? []).filter(d => toDepRef(d).id !== predTask.id);
+    dispatch({ type: 'UPDATE_TASK', id: succ.id, changes: { dependencies: newDeps } });
   };
 
   const handleResizeMouseDown = (e: React.MouseEvent, taskId: string, startDate: string, endDate: string, duration: number) => {
@@ -515,6 +523,17 @@ export function GanttView({ svgRef, wrapperRef, scrollRef, scrollToTodayRef }: G
             >
               <path d="M 0 0 L 6 3 L 0 6 z" fill="var(--accent-color)" opacity="0.75" />
             </marker>
+            <marker
+              id="dependency-arrow-violated"
+              viewBox="0 0 6 6"
+              refX="6"
+              refY="3"
+              markerWidth="6"
+              markerHeight="6"
+              orient="auto"
+            >
+              <path d="M 0 0 L 6 3 L 0 6 z" fill="#ef4444" opacity="0.9" />
+            </marker>
           </defs>
 
           {/* Weekend background columns */}
@@ -593,13 +612,25 @@ export function GanttView({ svgRef, wrapperRef, scrollRef, scrollToTodayRef }: G
                 ].join(' ');
               }
               
+              const violated = isDepViolated(task, predTask, ref, project.calendar);
+              const refLabel = formatDepRef(ref, project.tasks);
+              const tooltip = `「${predTask.name}」→「${task.name}」(${refLabel})${violated ? ' ⚠ 依存制約違反' : ''}\nクリックで削除`;
+
               return (
-                <polyline
-                  key={`dep-${predTask.id}-${task.id}-${depIdx}`}
-                  points={points}
-                  className={styles.dependencyLine}
-                  markerEnd="url(#dependency-arrow)"
-                />
+                <g key={`dep-${predTask.id}-${task.id}-${depIdx}`} className={styles.depGroup}>
+                  <polyline
+                    points={points}
+                    className={`${styles.dependencyLine} ${violated ? styles.dependencyLineViolated : ''}`}
+                    markerEnd={violated ? 'url(#dependency-arrow-violated)' : 'url(#dependency-arrow)'}
+                  />
+                  <polyline
+                    points={points}
+                    className={styles.depHitArea}
+                    onClick={() => handleDependencyClick(task, predTask)}
+                  >
+                    <title>{tooltip}</title>
+                  </polyline>
+                </g>
               );
             });
           })}

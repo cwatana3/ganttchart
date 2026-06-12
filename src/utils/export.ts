@@ -6,6 +6,7 @@ import {
 } from './taskTree';
 import { toDate, fromDate } from './calendar';
 import { formatDeps, depRefs } from './deps';
+import { isDepViolated } from './schedule';
 import { darken } from './color';
 import { addDays, differenceInCalendarDays } from 'date-fns';
 
@@ -547,6 +548,21 @@ export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' 
   marker.appendChild(markerPath);
   defs.appendChild(marker);
 
+  // Violated-dependency arrow marker (solid red)
+  const markerV = svgEl('marker');
+  markerV.setAttribute('id', 'dependency-arrow-violated');
+  markerV.setAttribute('viewBox', '0 0 6 6');
+  markerV.setAttribute('refX', '6');
+  markerV.setAttribute('refY', '3');
+  markerV.setAttribute('markerWidth', '6');
+  markerV.setAttribute('markerHeight', '6');
+  markerV.setAttribute('orient', 'auto');
+  const markerVPath = svgEl('path');
+  markerVPath.setAttribute('d', 'M 0 0 L 6 3 L 0 6 z');
+  markerVPath.setAttribute('fill', '#ef4444');
+  markerV.appendChild(markerVPath);
+  defs.appendChild(markerV);
+
   svg.appendChild(defs);
 
   // ================================================================
@@ -744,12 +760,14 @@ export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' 
         ].join(' ');
       }
 
+      const violated = isDepViolated(task, predTask, ref, project.calendar);
       const poly = svgEl('polyline');
       poly.setAttribute('points', points);
       poly.setAttribute('fill', 'none');
-      poly.setAttribute('stroke', C.accent);
+      poly.setAttribute('stroke', violated ? '#ef4444' : C.accent);
       poly.setAttribute('stroke-width', '1.5');
-      poly.setAttribute('marker-end', 'url(#dependency-arrow)');
+      if (violated) poly.setAttribute('stroke-dasharray', '5 3');
+      poly.setAttribute('marker-end', violated ? 'url(#dependency-arrow-violated)' : 'url(#dependency-arrow)');
       chart.appendChild(poly);
     });
   });
