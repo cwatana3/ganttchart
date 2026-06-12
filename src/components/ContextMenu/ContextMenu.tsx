@@ -6,6 +6,9 @@ interface MenuItem {
   onClick?: () => void;
   disabled?: boolean;
   danger?: boolean;
+  /** 色見本の行。null はデフォルト色に戻す */
+  swatches?: (string | null)[];
+  onPickSwatch?: (color: string | null) => void;
 }
 
 interface ContextMenuProps {
@@ -63,6 +66,29 @@ export function ContextMenu({ x, y, onClose, items }: ContextMenuProps) {
       {items.map((item, idx) => {
         if (item.label === '-') {
           return <div key={idx} className={styles.divider} />;
+        }
+        if (item.swatches) {
+          return (
+            <div key={idx} className={styles.swatchRow}>
+              <span className={styles.swatchLabel}>{item.label}</span>
+              <div className={styles.swatches}>
+                {item.swatches.map((color, i) => (
+                  <button
+                    key={i}
+                    className={styles.swatch}
+                    style={color ? { background: color } : undefined}
+                    title={color ?? 'デフォルトに戻す'}
+                    onClick={() => {
+                      item.onPickSwatch?.(color);
+                      onClose();
+                    }}
+                  >
+                    {color ? '' : '×'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
         }
         return (
           <button

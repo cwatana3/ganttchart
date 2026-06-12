@@ -92,6 +92,11 @@
   cursor: grabbing;
 }
 
+.progressFill {
+  fill: rgba(0, 0, 0, 0.28);
+  pointer-events: none;
+}
+
 .dependencyLine {
   fill: none;
   stroke: var(--accent-color);

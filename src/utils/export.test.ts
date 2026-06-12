@@ -137,10 +137,10 @@ describe('buildGanttSvg', () => {
     ]);
   }
 
-  it('renders all six table column headers', () => {
+  it('renders all ten table column headers', () => {
     const svg = buildGanttSvg(sampleProject(), false);
     const texts = Array.from(svg.querySelectorAll('text')).map(t => t.textContent);
-    for (const label of ['タスク名', '期間', '開始日', '終了日', '担当者', '先行']) {
+    for (const label of ['#', 'WBS', 'タスク名', '期間', '開始日', '終了日', '進捗', '担当者', '先行', 'メモ']) {
       expect(texts).toContain(label);
     }
   });

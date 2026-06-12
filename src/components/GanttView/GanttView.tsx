@@ -1,6 +1,8 @@
 import { useMemo, useCallback, useState, useEffect, useRef } from 'react';
 import { useProject } from '../../store/ProjectContext';
 import { getVisibleTasks, checkCircularDependency } from '../../utils/taskTree';
+import { depRefs, depIds } from '../../utils/deps';
+import { darken } from '../../utils/color';
 import { toDate, fromDate, addWorkingDays, countWorkingDays } from '../../utils/calendar';
 import { addDays, differenceInCalendarDays } from 'date-fns';
 import styles from './GanttView.module.css';
@@ -28,9 +30,10 @@ interface GanttViewProps {
   svgRef: React.RefObject<SVGSVGElement>;
   wrapperRef: React.RefObject<HTMLDivElement>;
   scrollRef: React.RefObject<HTMLDivElement>;
+  scrollToTodayRef?: React.MutableRefObject<(() => void) | null>;
 }
 
-export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
+export function GanttView({ svgRef, wrapperRef, scrollRef, scrollToTodayRef }: GanttViewProps) {
   const { project, dispatch, viewMode, selectedTaskIds } = useProject();
   const visibleTasks = getVisibleTasks(project.tasks);
   const [isDragging, setIsDragging] = useState(false);
@@ -114,6 +117,19 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
 
   const todayStr = fromDate(new Date());
 
+  // Expose "scroll to today" to the toolbar
+  useEffect(() => {
+    if (!scrollToTodayRef) return;
+    scrollToTodayRef.current = () => {
+      const el = scrollRef.current;
+      if (!el) return;
+      el.scrollTo({ left: Math.max(0, getX(todayStr) - el.clientWidth / 3), behavior: 'smooth' });
+    };
+    return () => {
+      scrollToTodayRef.current = null;
+    };
+  }, [scrollToTodayRef, getX, todayStr]);
+
   // Sync horizontal scroll between header and bars
   useEffect(() => {
     const scrollEl = scrollRef.current;
@@ -196,7 +212,7 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
             const successorTask = project.tasks.find(t => t.id === toTaskId);
             if (successorTask) {
               const currentDeps = successorTask.dependencies || [];
-              if (!currentDeps.includes(linkingState.fromTaskId)) {
+              if (!depIds(successorTask).includes(linkingState.fromTaskId)) {
                 const isCircular = checkCircularDependency(toTaskId, linkingState.fromTaskId, project.tasks);
                 if (!isCircular) {
                   dispatch({
@@ -537,17 +553,15 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
 
           {/* Dependency connection lines */}
           {visibleTasks.flatMap((task, succIdx) => {
-            if (!task.dependencies || task.dependencies.length === 0) return [];
-            
-            return task.dependencies.map((predId, depIdx) => {
-              const predIdx = visibleTasks.findIndex(t => t.id === predId);
+            return depRefs(task).map((ref, depIdx) => {
+              const predIdx = visibleTasks.findIndex(t => t.id === ref.id);
               if (predIdx === -1) return null;
-              
+
               const predTask = visibleTasks[predIdx];
-              const predX = getX(predTask.endDate);
+              const predX = ref.type[0] === 'F' ? getX(predTask.endDate) : getX(predTask.startDate);
               const predY = predIdx * ROW_HEIGHT + BAR_Y_OFFSET + BAR_HEIGHT / 2;
-              
-              const succX = getX(task.startDate);
+
+              const succX = ref.type[1] === 'S' ? getX(task.startDate) : getX(task.endDate);
               const succY = succIdx * ROW_HEIGHT + BAR_Y_OFFSET + BAR_HEIGHT / 2;
               
               const startX = predX;
@@ -642,7 +656,12 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
                   data-task-id={task.id}
                   points={points}
                   className={styles.milestoneDiamond}
-                  style={{ cursor: isDraggedOrMovingSelected ? 'grabbing' : 'grab', opacity: isDraggedOrMovingSelected ? 0.6 : 1 }}
+                  style={{
+                    cursor: isDraggedOrMovingSelected ? 'grabbing' : 'grab',
+                    opacity: isDraggedOrMovingSelected ? 0.6 : 1,
+                    fill: task.color ?? undefined,
+                    stroke: task.color ? darken(task.color, 0.7) : undefined,
+                  }}
                   onMouseDown={(e) => handleMoveMouseDown(e, task.id, task.startDate, task.endDate, task.duration)}
                 />
               );
@@ -683,6 +702,8 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
               );
             }
 
+            const progressW = barWidth * Math.max(0, Math.min(100, task.progress)) / 100;
+
             return (
               <g key={task.id} data-task-id={task.id}>
                 <rect
@@ -697,9 +718,22 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
                     cursor: isDraggedOrMovingSelected ? (isResizing ? 'ew-resize' : 'grabbing') : 'grab',
                     opacity: isDraggedOrMovingSelected ? 0.6 : 1,
                     transition: isDraggedOrMovingSelected ? 'none' : 'opacity 0.1s',
+                    fill: task.color ?? undefined,
+                    stroke: task.color ? darken(task.color, 0.7) : undefined,
                   }}
                   onMouseDown={(e) => handleMoveMouseDown(e, task.id, task.startDate, task.endDate, task.duration)}
                 />
+                {progressW > 0 && (
+                  <rect
+                    x={x1}
+                    y={y}
+                    width={progressW}
+                    height={BAR_HEIGHT}
+                    rx={2}
+                    ry={2}
+                    className={styles.progressFill}
+                  />
+                )}
                 <rect
                   x={x1 + barWidth - RESIZE_HANDLE_WIDTH}
                   y={y}

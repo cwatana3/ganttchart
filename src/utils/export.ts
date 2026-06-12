@@ -2,8 +2,11 @@ import type { Project, Task } from '../types';
 import {
   getVisibleTasks,
   getDepth,
+  getWbsMap,
 } from './taskTree';
 import { toDate, fromDate } from './calendar';
+import { formatDeps, depRefs } from './deps';
+import { darken } from './color';
 import { addDays, differenceInCalendarDays } from 'date-fns';
 
 export function exportToJSON(project: Project): void {
@@ -169,11 +172,25 @@ interface ColSpec {
   label: string;
   getValue: (task: Task) => string;
   fontSize: number;
+  color?: string;
 }
 
 function getColSpecs(C: Colors, tasks: Task[]): { specs: ColSpec[]; colColor: string } {
+  const wbsMap = getWbsMap(tasks);
   return {
     specs: [
+      {
+        key: 'rowNum', label: '#',
+        getValue: (t) => String(tasks.findIndex(x => x.id === t.id) + 1),
+        fontSize: 12,
+        color: C.textMuted,
+      },
+      {
+        key: 'wbs', label: 'WBS',
+        getValue: (t) => wbsMap.get(t.id) ?? '',
+        fontSize: 12,
+        color: C.textMuted,
+      },
       {
         key: 'name', label: 'タスク名',
         getValue: (t) => t.name,
@@ -195,19 +212,23 @@ function getColSpecs(C: Colors, tasks: Task[]): { specs: ColSpec[]; colColor: st
         fontSize: 12,
       },
       {
+        key: 'progress', label: '進捗',
+        getValue: (t) => `${t.progress}%`,
+        fontSize: 12,
+      },
+      {
         key: 'assignee', label: '担当者',
         getValue: (t) => t.assignee || '-',
         fontSize: 12,
       },
       {
         key: 'dependencies', label: '先行',
-        getValue: (t) => (t.dependencies ?? [])
-          .map(dId => {
-            const idx = tasks.findIndex(x => x.id === dId);
-            return idx !== -1 ? String(idx + 1) : '';
-          })
-          .filter(Boolean)
-          .join(', ') || '-',
+        getValue: (t) => formatDeps(t, tasks) || '-',
+        fontSize: 12,
+      },
+      {
+        key: 'notes', label: 'メモ',
+        getValue: (t) => t.notes || '-',
         fontSize: 12,
       },
     ],
@@ -554,7 +575,7 @@ export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' 
 
       if (spec.key === 'name') {
         // 1. Draw Icon / Chevron
-        const iconX = colStartX[0] + 12 + depth * 16 + 6;
+        const iconX = colStartX[c] + 12 + depth * 16 + 6;
         const iconY = rowY + ROW_H / 2;
         const hasChildren = project.tasks.some(t => t.parentId === task.id);
         
@@ -587,7 +608,7 @@ export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' 
         }
 
         // 2. Render name text
-        const textX = colStartX[0] + 12 + depth * 16 + 18;
+        const textX = colStartX[c] + 12 + depth * 16 + 18;
         const maxPx = colEndX[c] - textX - 8;
         const display = truncate(raw, maxPx, spec.fontSize);
         svg.appendChild(textEl(textX, rowMidY, display, colColor, { fontSize: spec.fontSize }));
@@ -595,7 +616,7 @@ export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' 
         if (!raw) continue;
         const maxPx = colEndX[c] - colStartX[c] - COL_PAD;
         const display = truncate(raw, maxPx, spec.fontSize);
-        svg.appendChild(textEl(colStartX[c] + 8, rowMidY, display, colColor, { fontSize: spec.fontSize }));
+        svg.appendChild(textEl(colStartX[c] + 8, rowMidY, display, spec.color ?? colColor, { fontSize: spec.fontSize }));
       }
     }
   }
@@ -683,16 +704,15 @@ export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' 
 
   // Draw dependency connection lines (solid color, no transparency)
   visibleTasks.forEach((task, succIdx) => {
-    if (!task.dependencies || task.dependencies.length === 0) return;
-    task.dependencies.forEach((predId) => {
-      const predIdx = visibleTasks.findIndex(t => t.id === predId);
+    depRefs(task).forEach((ref) => {
+      const predIdx = visibleTasks.findIndex(t => t.id === ref.id);
       if (predIdx === -1) return;
 
       const predTask = visibleTasks[predIdx];
-      const predX = getX(predTask.endDate);
+      const predX = ref.type[0] === 'F' ? getX(predTask.endDate) : getX(predTask.startDate);
       const predY = HEADER_H + predIdx * ROW_H + ROW_H / 2;
 
-      const succX = getX(task.startDate);
+      const succX = ref.type[1] === 'S' ? getX(task.startDate) : getX(task.endDate);
       const succY = HEADER_H + succIdx * ROW_H + ROW_H / 2;
 
       const startX = predX;
@@ -748,8 +768,8 @@ export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' 
       const pts = `${cx},${cy - MSIZE} ${cx + MSIZE},${cy} ${cx},${cy + MSIZE} ${cx - MSIZE},${cy}`;
       const poly = svgEl('polygon');
       poly.setAttribute('points', pts);
-      poly.setAttribute('fill', 'url(#milestone-gradient)');
-      poly.setAttribute('stroke', C.milestoneStroke);
+      poly.setAttribute('fill', task.color ?? 'url(#milestone-gradient)');
+      poly.setAttribute('stroke', task.color ? darken(task.color, 0.7) : C.milestoneStroke);
       poly.setAttribute('stroke-width', '1');
       chart.appendChild(poly);
     } else if (isSummary) {
@@ -769,9 +789,21 @@ export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' 
       path.setAttribute('stroke-width', '1');
       chart.appendChild(path);
     } else {
-      const rect = rectEl(x1, barY, w, BAR_H, 'url(#task-gradient)', C.taskBarStroke, 3);
+      const rect = rectEl(
+        x1, barY, w, BAR_H,
+        task.color ?? 'url(#task-gradient)',
+        task.color ? darken(task.color, 0.7) : C.taskBarStroke,
+        3,
+      );
       rect.setAttribute('stroke-width', '1');
       chart.appendChild(rect);
+
+      // Progress fill (solid color blend — no transparency allowed in export)
+      const prog = Math.max(0, Math.min(100, task.progress ?? 0));
+      if (prog > 0) {
+        const doneColor = darken(task.color ?? C.taskBar, 0.72);
+        chart.appendChild(rectEl(x1, barY, w * prog / 100, BAR_H, doneColor, undefined, 3));
+      }
     }
   }
 
@@ -820,7 +852,21 @@ export function validateProject(obj: any): obj is Project {
     if (typeof t.progress !== 'number') return false;
     if (typeof t.collapsed !== 'boolean') return false;
     if (t.assignee !== undefined && typeof t.assignee !== 'string') return false;
-    if (t.dependencies !== undefined && (!Array.isArray(t.dependencies) || !t.dependencies.every((d: any) => typeof d === 'string'))) return false;
+    if (t.notes !== undefined && typeof t.notes !== 'string') return false;
+    if (t.color !== undefined && typeof t.color !== 'string') return false;
+    if (t.dependencies !== undefined && (!Array.isArray(t.dependencies) || !t.dependencies.every((d: any) =>
+      typeof d === 'string' ||
+      (d && typeof d === 'object' && typeof d.id === 'string' &&
+        ['FS', 'SS', 'FF', 'SF'].includes(d.type) && typeof d.lag === 'number')
+    ))) return false;
+  }
+
+  if (obj.autoSchedule !== undefined && typeof obj.autoSchedule !== 'boolean') return false;
+  if (obj.baseline !== undefined) {
+    if (!obj.baseline || typeof obj.baseline !== 'object' || Array.isArray(obj.baseline)) return false;
+    for (const b of Object.values(obj.baseline) as any[]) {
+      if (!b || typeof b.startDate !== 'string' || typeof b.endDate !== 'string') return false;
+    }
   }
 
   // Structural integrity — duplicate ids, dangling parents, or parent cycles

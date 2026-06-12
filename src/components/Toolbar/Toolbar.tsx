@@ -7,9 +7,10 @@ import styles from './Toolbar.module.css';
 
 interface ToolbarProps {
   onOpenCalendar: () => void;
+  onToday?: () => void;
 }
 
-export function Toolbar({ onOpenCalendar }: ToolbarProps) {
+export function Toolbar({ onOpenCalendar, onToday }: ToolbarProps) {
   const {
     project,
     dispatch,
@@ -21,6 +22,8 @@ export function Toolbar({ onOpenCalendar }: ToolbarProps) {
     setViewMode,
     undo,
     canUndo,
+    redo,
+    canRedo,
     copyTask,
     cutTask,
     pasteTask,
@@ -99,6 +102,14 @@ export function Toolbar({ onOpenCalendar }: ToolbarProps) {
         title="元に戻す (Ctrl+Z)"
       >
         ⎌ 戻す
+      </button>
+      <button
+        className={styles.button}
+        onClick={redo}
+        disabled={!canRedo}
+        title="やり直す (Ctrl+Y)"
+      >
+        ↻ やり直す
       </button>
 
       <div className={styles.separator} />
@@ -181,6 +192,7 @@ export function Toolbar({ onOpenCalendar }: ToolbarProps) {
           </button>
         </div>
       </div>
+      <button className={styles.button} onClick={onToday} title="今日の位置へスクロール">📍 今日</button>
 
       <div className={styles.separator} />
 

@@ -1,20 +1,15 @@
 import { useState, memo } from 'react';
-import type { Task } from '../../types';
+import type { Task, TaskDependency } from '../../types';
 import { useProject } from '../../store/ProjectContext';
 import { getDepth, checkCircularDependency } from '../../utils/taskTree';
+import { formatDeps, parseDepsInput, toStorage } from '../../utils/deps';
+import type { ColWidths } from './TaskTable';
 import styles from './TaskTable.module.css';
-
-interface ColWidths {
-  name: number;
-  duration: number;
-  startDate: number;
-  endDate: number;
-  assignee: number;
-  dependencies: number;
-}
 
 interface TaskRowProps {
   task: Task;
+  rowNumber: number;
+  wbs: string;
   isSelected: boolean;
   isDragged: boolean;
   showDropBefore: boolean;
@@ -31,6 +26,8 @@ interface TaskRowProps {
 
 export const TaskRow = memo(function TaskRow({
   task,
+  rowNumber,
+  wbs,
   isSelected,
   isDragged,
   showDropBefore,
@@ -73,35 +70,34 @@ export const TaskRow = memo(function TaskRow({
       case 'duration':
         changes.duration = Number(editValue) || 0;
         break;
+      case 'progress':
+        changes.progress = Math.max(0, Math.min(100, Math.round(Number(editValue) || 0)));
+        break;
       case 'assignee':
         changes.assignee = editValue;
         break;
+      case 'notes':
+        changes.notes = editValue;
+        break;
       case 'dependencies': {
-        const nums = editValue
-          .split(',')
-          .map(s => parseInt(s.trim(), 10))
-          .filter(n => !isNaN(n) && n > 0 && n <= project.tasks.length);
-        const invalidDeps: number[] = [];
-        const validDepIds: string[] = [];
-        for (const num of nums) {
-          const depTask = project.tasks[num - 1];
-          if (!depTask) continue;
-          if (depTask.id === task.id) {
-            invalidDeps.push(num);
+        const { tokens, invalid } = parseDepsInput(editValue, project.tasks.length);
+        const invalidDeps: string[] = [...invalid];
+        const validDeps: TaskDependency[] = [];
+        for (const tok of tokens) {
+          const depTask = project.tasks[tok.row - 1];
+          if (!depTask || depTask.id === task.id ||
+              checkCircularDependency(task.id, depTask.id, project.tasks)) {
+            invalidDeps.push(String(tok.row));
             continue;
           }
-          if (checkCircularDependency(task.id, depTask.id, project.tasks)) {
-            invalidDeps.push(num);
-          } else {
-            validDepIds.push(depTask.id);
-          }
+          validDeps.push(toStorage({ id: depTask.id, type: tok.type, lag: tok.lag }));
         }
         if (invalidDeps.length > 0) {
-          alert(`タスク ${invalidDeps.join(', ')} は循環依存関係が発生するため、先行タスクとして追加できません。`);
+          alert(`先行タスクの指定「${invalidDeps.join(', ')}」は無効です（書式誤り・自己参照・循環依存のいずれか）。\n書式例: 3 / 3SS / 3FS+2 / 3-1`);
           setEditingField(null);
           return;
         }
-        changes.dependencies = validDepIds;
+        changes.dependencies = validDeps;
         break;
       }
     }
@@ -163,6 +159,8 @@ export const TaskRow = memo(function TaskRow({
     return { width: colWidths[col], minWidth: colWidths[col] };
   };
 
+  const mutedStyle: React.CSSProperties = { color: 'var(--text-muted)' };
+
   return (
     <tr
       className={rowClass}
@@ -179,6 +177,12 @@ export const TaskRow = memo(function TaskRow({
       onDragEnd={onDragEnd}
       onDragLeave={onDragLeave}
     >
+      <td className={styles.cell} style={{ ...colStyle('rowNum'), ...mutedStyle }}>
+        {rowNumber}
+      </td>
+      <td className={styles.cell} style={{ ...colStyle('wbs'), ...mutedStyle }}>
+        {wbs}
+      </td>
       <td className={styles.cell} style={colStyle('name')}>
         <div className={styles.taskNameWrapper} style={{ '--indent': depth } as React.CSSProperties}>
           {hasChildren ? (
@@ -201,23 +205,23 @@ export const TaskRow = memo(function TaskRow({
       <td className={styles.cell} style={colStyle('endDate')}>
         {renderCell('endDate', task.endDate)}
       </td>
+      <td className={styles.cell} style={colStyle('progress')}>
+        {renderCell('progress', String(task.progress), `${task.progress}%`)}
+      </td>
       <td className={styles.cell} style={colStyle('assignee')}>
         {renderCell('assignee', task.assignee || '', task.assignee || '-')}
       </td>
       {(() => {
-        const depsValue = (task.dependencies ?? [])
-          .map(dId => {
-            const idx = project.tasks.findIndex(t => t.id === dId);
-            return idx !== -1 ? String(idx + 1) : '';
-          })
-          .filter(Boolean)
-          .join(', ');
+        const depsValue = formatDeps(task, project.tasks);
         return (
           <td className={styles.cell} style={colStyle('dependencies')}>
             {renderCell('dependencies', depsValue, depsValue || '-')}
           </td>
         );
       })()}
+      <td className={styles.cell} style={colStyle('notes')} title={task.notes || undefined}>
+        {renderCell('notes', task.notes || '', task.notes || '-')}
+      </td>
     </tr>
   );
 });

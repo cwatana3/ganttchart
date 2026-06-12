@@ -1,4 +1,5 @@
 import type { Task } from '../types';
+import { depRefs } from './deps';
 
 export function getChildren(parentId: string, tasks: Task[]): Task[] {
   return tasks.filter(t => t.parentId === parentId);
@@ -83,6 +84,22 @@ export function getFlattenedTasks(tasks: Task[]): Task[] {
   return result;
 }
 
+/** タスクID → WBS番号（"1.2.3" 形式）。ルート・兄弟とも配列順で採番する。 */
+export function getWbsMap(tasks: Task[]): Map<string, string> {
+  const map = new Map<string, string>();
+
+  function walk(list: Task[], prefix: string) {
+    list.forEach((t, i) => {
+      const wbs = prefix ? `${prefix}.${i + 1}` : String(i + 1);
+      map.set(t.id, wbs);
+      walk(getChildren(t.id, tasks), wbs);
+    });
+  }
+
+  walk(tasks.filter(t => t.parentId === null), '');
+  return map;
+}
+
 export function canIndent(taskId: string, tasks: Task[]): boolean {
   return getPreviousSibling(taskId, tasks) !== null;
 }
@@ -104,9 +121,10 @@ export function checkCircularDependency(targetId: string, potentialPredecessorId
     if (visited.has(taskId)) return false;
     visited.add(taskId);
     const task = tasks.find(t => t.id === taskId);
-    if (!task || !task.dependencies) return false;
-    if (task.dependencies.includes(targetId)) return true;
-    return task.dependencies.some(dId => dependsOnTarget(dId));
+    if (!task) return false;
+    const refs = depRefs(task);
+    if (refs.some(r => r.id === targetId)) return true;
+    return refs.some(r => dependsOnTarget(r.id));
   }
 
   return dependsOnTarget(potentialPredecessorId);

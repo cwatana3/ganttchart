@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, useCallback, type ReactNode } from 'react';
-import type { Project, ProjectAction, Task, Calendar } from '../types';
+import type { Project, ProjectAction, Task, Calendar, BaselineEntry } from '../types';
 import { createDefaultProject } from '../types';
+import { toDepRef } from '../utils/deps';
 import {
   getFlattenedTasks,
   getChildren,
@@ -52,6 +53,30 @@ async function loadFromIndexedDB(): Promise<Project | null> {
   }
 }
 
+function applyTaskChanges(t: Task, changes: Partial<Task>, calendar: Calendar): Task {
+  const updated = { ...t, ...changes };
+
+  if (changes.duration !== undefined && !changes.endDate) {
+    updated.isMilestone = updated.duration === 0;
+    if (updated.isMilestone) {
+      updated.endDate = updated.startDate;
+    } else {
+      updated.endDate = addWorkingDays(updated.startDate, updated.duration, calendar);
+    }
+  } else if (changes.startDate !== undefined && !changes.endDate) {
+    if (updated.isMilestone) {
+      updated.endDate = updated.startDate;
+    } else {
+      updated.endDate = addWorkingDays(updated.startDate, updated.duration, calendar);
+    }
+  } else if (changes.endDate !== undefined && changes.startDate === undefined) {
+    updated.duration = countWorkingDays(updated.startDate, updated.endDate, calendar);
+    updated.isMilestone = updated.duration === 0;
+  }
+
+  return updated;
+}
+
 function rawProjectReducer(state: Project, action: ProjectAction): Project {
   switch (action.type) {
     case 'LOAD_PROJECT':
@@ -62,6 +87,24 @@ function rawProjectReducer(state: Project, action: ProjectAction): Project {
 
     case 'SET_CALENDAR':
       return { ...state, calendar: action.calendar };
+
+    case 'SET_AUTO_SCHEDULE':
+      return { ...state, autoSchedule: action.enabled };
+
+    case 'SET_BASELINE': {
+      const baseline: Record<string, BaselineEntry> = {};
+      for (const t of state.tasks) {
+        baseline[t.id] = { startDate: t.startDate, endDate: t.endDate };
+      }
+      return { ...state, baseline };
+    }
+
+    case 'CLEAR_BASELINE': {
+      if (!state.baseline) return state;
+      const next = { ...state };
+      delete next.baseline;
+      return next;
+    }
 
     case 'ADD_TASK': {
       const newTask: Task = {
@@ -137,10 +180,10 @@ function rawProjectReducer(state: Project, action: ProjectAction): Project {
         collectChildren(id);
       }
       const remainingTasks = state.tasks.filter(t => !idsToDelete.has(t.id)).map(t => {
-        if (t.dependencies && t.dependencies.some(d => idsToDelete.has(d))) {
+        if (t.dependencies && t.dependencies.some(d => idsToDelete.has(toDepRef(d).id))) {
           return {
             ...t,
-            dependencies: t.dependencies.filter(d => !idsToDelete.has(d)),
+            dependencies: t.dependencies.filter(d => !idsToDelete.has(toDepRef(d).id)),
           };
         }
         return t;
@@ -149,30 +192,17 @@ function rawProjectReducer(state: Project, action: ProjectAction): Project {
     }
 
     case 'UPDATE_TASK': {
-      const tasks = state.tasks.map(t => {
-        if (t.id !== action.id) return t;
-        const updated = { ...t, ...action.changes };
+      const tasks = state.tasks.map(t =>
+        t.id === action.id ? applyTaskChanges(t, action.changes, state.calendar) : t
+      );
+      return { ...state, tasks };
+    }
 
-        if (action.changes.duration !== undefined && !action.changes.endDate) {
-          updated.isMilestone = updated.duration === 0;
-          if (updated.isMilestone) {
-            updated.endDate = updated.startDate;
-          } else {
-            updated.endDate = addWorkingDays(updated.startDate, updated.duration, state.calendar);
-          }
-        } else if (action.changes.startDate !== undefined && !action.changes.endDate) {
-          if (updated.isMilestone) {
-            updated.endDate = updated.startDate;
-          } else {
-            updated.endDate = addWorkingDays(updated.startDate, updated.duration, state.calendar);
-          }
-        } else if (action.changes.endDate !== undefined && action.changes.startDate === undefined) {
-          updated.duration = countWorkingDays(updated.startDate, updated.endDate, state.calendar);
-          updated.isMilestone = updated.duration === 0;
-        }
-
-        return updated;
-      });
+    case 'UPDATE_TASKS': {
+      const ids = new Set(action.ids);
+      const tasks = state.tasks.map(t =>
+        ids.has(t.id) ? applyTaskChanges(t, action.changes, state.calendar) : t
+      );
       return { ...state, tasks };
     }
 
@@ -411,31 +441,46 @@ function updateParentTasks(tasks: Task[], calendar: Calendar): Task[] {
   
   if (parentIds.size === 0) return tasks;
 
-  const memo = new Map<string, { startDate: string; endDate: string; duration: number }>();
+  const memo = new Map<string, { startDate: string; endDate: string; duration: number; progress: number }>();
 
-  function resolve(parentId: string): { startDate: string; endDate: string; duration: number } {
+  function resolve(parentId: string): { startDate: string; endDate: string; duration: number; progress: number } {
     if (memo.has(parentId)) return memo.get(parentId)!;
 
     const children = tasks.filter(t => t.parentId === parentId);
     let earliestStart = '';
     let latestEnd = '';
+    let weightedProgress = 0;
+    let totalWeight = 0;
+    let progressSum = 0;
 
     for (const child of children) {
       let start = child.startDate;
       let end = child.endDate;
+      let childDuration = child.duration;
+      let childProgress = child.progress;
 
       if (parentIds.has(child.id)) {
         const resolvedChild = resolve(child.id);
         start = resolvedChild.startDate;
         end = resolvedChild.endDate;
+        childDuration = resolvedChild.duration;
+        childProgress = resolvedChild.progress;
       }
 
       if (!earliestStart || start < earliestStart) earliestStart = start;
       if (!latestEnd || end > latestEnd) latestEnd = end;
+
+      weightedProgress += childDuration * childProgress;
+      totalWeight += childDuration;
+      progressSum += childProgress;
     }
 
     const duration = earliestStart && latestEnd ? countWorkingDays(earliestStart, latestEnd, calendar) : 0;
-    const res = { startDate: earliestStart, endDate: latestEnd, duration };
+    // 期間加重平均（マイルストーンのみの場合は単純平均）
+    const progress = totalWeight > 0
+      ? Math.round(weightedProgress / totalWeight)
+      : children.length > 0 ? Math.round(progressSum / children.length) : 0;
+    const res = { startDate: earliestStart, endDate: latestEnd, duration, progress };
     memo.set(parentId, res);
     return res;
   }
@@ -452,6 +497,7 @@ function updateParentTasks(tasks: Task[], calendar: Calendar): Task[] {
           t.startDate === resolved.startDate &&
           t.endDate === resolved.endDate &&
           t.duration === resolved.duration &&
+          t.progress === resolved.progress &&
           !t.isMilestone
         ) {
           return t;
@@ -461,6 +507,7 @@ function updateParentTasks(tasks: Task[], calendar: Calendar): Task[] {
           startDate: resolved.startDate,
           endDate: resolved.endDate,
           duration: resolved.duration,
+          progress: resolved.progress,
           isMilestone: false,
         };
       }
@@ -545,6 +592,8 @@ interface ProjectContextValue {
   setViewMode: (mode: 'day' | 'week' | 'month') => void;
   undo: () => void;
   canUndo: boolean;
+  redo: () => void;
+  canRedo: boolean;
   copyTask: (id: string) => void;
   cutTask: (id: string) => void;
   pasteTask: () => void;
@@ -554,8 +603,8 @@ interface ProjectContextValue {
 const ProjectContext = createContext<ProjectContextValue | null>(null);
 
 export function ProjectProvider({ children }: { children: ReactNode }) {
-  const [history, setHistory] = useState<{ past: Project[]; present: Project }>(() => {
-    return { past: [], present: createDefaultProject() };
+  const [history, setHistory] = useState<{ past: Project[]; present: Project; future: Project[] }>(() => {
+    return { past: [], present: createDefaultProject(), future: [] };
   });
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
   const selectedTaskId = selectedTaskIds.length > 0 ? selectedTaskIds[selectedTaskIds.length - 1] : null;
@@ -573,6 +622,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       setHistory({
         past: [],
         present: action.project,
+        future: [],
       });
       return;
     }
@@ -584,6 +634,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       return {
         past: [...curr.past, curr.present],
         present: nextPresent,
+        future: [],
       };
     });
   }, []);
@@ -592,15 +643,28 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     setHistory(curr => {
       if (curr.past.length === 0) return curr;
       const previous = curr.past[curr.past.length - 1];
-      const newPast = curr.past.slice(0, curr.past.length - 1);
       return {
-        past: newPast,
+        past: curr.past.slice(0, curr.past.length - 1),
         present: previous,
+        future: [curr.present, ...curr.future],
+      };
+    });
+  }, []);
+
+  const redo = useCallback(() => {
+    setHistory(curr => {
+      if (curr.future.length === 0) return curr;
+      const [next, ...restFuture] = curr.future;
+      return {
+        past: [...curr.past, curr.present],
+        present: next,
+        future: restFuture,
       };
     });
   }, []);
 
   const canUndo = history.past.length > 0;
+  const canRedo = history.future.length > 0;
 
   const copyTask = useCallback((id: string) => {
     const task = project.tasks.find(t => t.id === id);
@@ -710,6 +774,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         setViewMode,
         undo,
         canUndo,
+        redo,
+        canRedo,
         copyTask,
         cutTask,
         pasteTask,
