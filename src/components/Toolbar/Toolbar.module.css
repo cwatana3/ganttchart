@@ -60,6 +60,16 @@
   box-shadow: var(--shadow-sm);
 }
 
+/* コピー成功時の一時表示 */
+.iconBtn.success {
+  background: #10b981;
+  color: #ffffff;
+}
+
+.iconBtn.success:hover:not(:disabled) {
+  background: #10b981;
+}
+
 .iconBtn.on:hover:not(:disabled) {
   background: var(--accent-gradient);
   filter: brightness(1.08);
