@@ -599,6 +599,8 @@ interface ProjectContextValue {
   setViewMode: (mode: 'day' | 'week' | 'month') => void;
   showCriticalPath: boolean;
   setShowCriticalPath: React.Dispatch<React.SetStateAction<boolean>>;
+  filterText: string;
+  setFilterText: React.Dispatch<React.SetStateAction<string>>;
   undo: () => void;
   canUndo: boolean;
   redo: () => void;
@@ -622,6 +624,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   }, []);
   const [viewMode, setViewMode] = useState<'day' | 'week' | 'month'>('day');
   const [showCriticalPath, setShowCriticalPath] = useState(false);
+  const [filterText, setFilterText] = useState('');
   const [clipboard, setClipboard] = useState<ClipboardContent | null>(null);
   const loaded = useRef(false);
 
@@ -784,6 +787,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         setViewMode,
         showCriticalPath,
         setShowCriticalPath,
+        filterText,
+        setFilterText,
         undo,
         canUndo,
         redo,

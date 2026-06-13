@@ -69,6 +69,51 @@ export function getVisibleTasks(tasks: Task[]): Task[] {
   return result;
 }
 
+/** タスク名・担当者・メモのいずれかに query（大文字小文字無視）を含むか */
+export function taskMatchesQuery(task: Task, query: string): boolean {
+  const q = query.toLowerCase();
+  return (
+    task.name.toLowerCase().includes(q) ||
+    (task.assignee ?? '').toLowerCase().includes(q) ||
+    (task.notes ?? '').toLowerCase().includes(q)
+  );
+}
+
+/**
+ * query に一致するタスクとその祖先のみをツリー順で返す。
+ * 一致タスクを常に見えるようにするため collapsed は無視する。
+ * query が空なら通常の getVisibleTasks と同じ。
+ */
+export function getFilteredVisibleTasks(tasks: Task[], query: string): Task[] {
+  const trimmed = query.trim();
+  if (!trimmed) return getVisibleTasks(tasks);
+
+  const byId = new Map(tasks.map(t => [t.id, t]));
+  const keep = new Set<string>();
+  for (const t of tasks) {
+    if (taskMatchesQuery(t, trimmed)) {
+      keep.add(t.id);
+      let pid = t.parentId;
+      while (pid && !keep.has(pid)) {
+        keep.add(pid);
+        pid = byId.get(pid)?.parentId ?? null;
+      }
+    }
+  }
+
+  const result: Task[] = [];
+  function walk(list: Task[]) {
+    for (const t of list) {
+      if (keep.has(t.id)) {
+        result.push(t);
+        walk(getChildren(t.id, tasks));
+      }
+    }
+  }
+  walk(tasks.filter(t => t.parentId === null));
+  return result;
+}
+
 export function getFlattenedTasks(tasks: Task[]): Task[] {
   const result: Task[] = [];
   const rootTasks = tasks.filter(t => t.parentId === null);

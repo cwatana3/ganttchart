@@ -22,6 +22,8 @@ export function Toolbar({ onOpenCalendar, onToday }: ToolbarProps) {
     setViewMode,
     showCriticalPath,
     setShowCriticalPath,
+    filterText,
+    setFilterText,
     undo,
     canUndo,
     redo,
@@ -217,6 +219,26 @@ export function Toolbar({ onOpenCalendar, onToday }: ToolbarProps) {
       <button className={styles.button} onClick={handleExportSVG}>🖼 SVG出力</button>
 
       <div className={styles.spacer} />
+
+      <div className={styles.searchBox}>
+        <span className={styles.searchIcon}>🔍</span>
+        <input
+          type="text"
+          className={styles.searchInput}
+          placeholder="タスク検索"
+          value={filterText}
+          onChange={e => setFilterText(e.target.value)}
+        />
+        {filterText && (
+          <button
+            className={styles.searchClear}
+            onClick={() => setFilterText('')}
+            title="検索をクリア"
+          >
+            ×
+          </button>
+        )}
+      </div>
 
       <button
         className={styles.button}

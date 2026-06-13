@@ -7,7 +7,7 @@ import { SplitPane } from './components/SplitPane/SplitPane';
 import { StatusBar } from './components/StatusBar/StatusBar';
 import { ContextMenu } from './components/ContextMenu/ContextMenu';
 import { useProject } from './store/ProjectContext';
-import { canIndent, canOutdent, getVisibleTasks } from './utils/taskTree';
+import { canIndent, canOutdent, getFilteredVisibleTasks } from './utils/taskTree';
 import styles from './App.module.css';
 
 const BAR_COLORS: (string | null)[] = [
@@ -39,6 +39,7 @@ export function App() {
     cutTask,
     pasteTask,
     canPaste,
+    filterText,
   } = useProject();
 
   useEffect(() => {
@@ -122,7 +123,7 @@ export function App() {
 
       // 8. ArrowUp / ArrowDown: move selection
       if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-        const visible = getVisibleTasks(project.tasks);
+        const visible = getFilteredVisibleTasks(project.tasks, filterText);
         if (visible.length > 0) {
           e.preventDefault();
           const idx = selectedTaskId ? visible.findIndex(t => t.id === selectedTaskId) : -1;
@@ -151,6 +152,7 @@ export function App() {
     cutTask,
     pasteTask,
     canPaste,
+    filterText,
   ]);
 
   // Context Menu event handler

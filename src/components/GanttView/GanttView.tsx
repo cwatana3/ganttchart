@@ -1,6 +1,6 @@
 import { useMemo, useCallback, useState, useEffect, useRef } from 'react';
 import { useProject } from '../../store/ProjectContext';
-import { getVisibleTasks, checkCircularDependency } from '../../utils/taskTree';
+import { getFilteredVisibleTasks, checkCircularDependency } from '../../utils/taskTree';
 import { depRefs, depIds, toDepRef, formatDepRef } from '../../utils/deps';
 import { isDepViolated, criticalTaskIds } from '../../utils/schedule';
 import { darken } from '../../utils/color';
@@ -36,8 +36,8 @@ interface GanttViewProps {
 }
 
 export function GanttView({ svgRef, wrapperRef, scrollRef, scrollToTodayRef }: GanttViewProps) {
-  const { project, dispatch, viewMode, selectedTaskIds, showCriticalPath } = useProject();
-  const visibleTasks = getVisibleTasks(project.tasks);
+  const { project, dispatch, viewMode, selectedTaskIds, showCriticalPath, filterText } = useProject();
+  const visibleTasks = getFilteredVisibleTasks(project.tasks, filterText);
   const criticalIds = useMemo(
     () => (showCriticalPath ? criticalTaskIds(project.tasks, project.calendar) : new Set<string>()),
     [showCriticalPath, project.tasks, project.calendar]

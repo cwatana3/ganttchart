@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useProject } from '../../store/ProjectContext';
-import { getVisibleTasks, getDepth, getDescendants, getWbsMap } from '../../utils/taskTree';
+import { getFilteredVisibleTasks, getDepth, getDescendants, getWbsMap } from '../../utils/taskTree';
 import { formatDeps } from '../../utils/deps';
 import { TaskRow } from './TaskRow';
 import styles from './TaskTable.module.css';
@@ -69,7 +69,7 @@ function measureTextWidth(text: string, fontSize: number, fontFamily: string = '
 }
 
 export function TaskTable() {
-  const { project, dispatch, selectedTaskIds, setSelectedTaskIds } = useProject();
+  const { project, dispatch, selectedTaskIds, setSelectedTaskIds, filterText } = useProject();
   const [draggedIds, setDraggedIds] = useState<string[]>([]);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const [dropPosition, setDropPosition] = useState<'before' | 'after' | 'inside'>('after');
@@ -79,7 +79,7 @@ export function TaskTable() {
   const resizeStartXRef = useRef(0);
   const resizeStartWidthRef = useRef(0);
   const tableRef = useRef<HTMLTableElement>(null);
-  const visibleTasks = getVisibleTasks(project.tasks);
+  const visibleTasks = getFilteredVisibleTasks(project.tasks, filterText);
 
   const rowNumMap = useMemo(
     () => new Map(project.tasks.map((t, i) => [t.id, i + 1])),

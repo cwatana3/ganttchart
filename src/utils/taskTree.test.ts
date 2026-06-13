@@ -8,6 +8,8 @@ import {
   getMaxDepth,
   getVisibleTasks,
   getFlattenedTasks,
+  getFilteredVisibleTasks,
+  taskMatchesQuery,
   canIndent,
   canOutdent,
   checkCircularDependency,
@@ -36,6 +38,55 @@ const tasks: Task[] = [
   makeTask({ id: '4', parentId: '2' }),
   makeTask({ id: '5' }),
 ];
+
+describe('taskMatchesQuery', () => {
+  it('matches by name (case-insensitive)', () => {
+    expect(taskMatchesQuery(makeTask({ id: 'x', name: '設計レビュー' }), 'レビュー')).toBe(true);
+    expect(taskMatchesQuery(makeTask({ id: 'x', name: 'Design' }), 'design')).toBe(true);
+  });
+
+  it('matches by assignee and notes', () => {
+    expect(taskMatchesQuery(makeTask({ id: 'x', assignee: '田中' }), '田中')).toBe(true);
+    expect(taskMatchesQuery(makeTask({ id: 'x', notes: '要確認' }), '確認')).toBe(true);
+  });
+
+  it('returns false when nothing matches', () => {
+    expect(taskMatchesQuery(makeTask({ id: 'x', name: 'A' }), 'zzz')).toBe(false);
+  });
+});
+
+describe('getFilteredVisibleTasks', () => {
+  const searchTasks: Task[] = [
+    makeTask({ id: '1', name: '親' }),
+    makeTask({ id: '2', name: '設計', parentId: '1' }),
+    makeTask({ id: '3', name: '実装', parentId: '1' }),
+    makeTask({ id: '4', name: '別ルート' }),
+  ];
+
+  it('空クエリでは getVisibleTasks と同じ', () => {
+    expect(getFilteredVisibleTasks(searchTasks, '').map(t => t.id))
+      .toEqual(getVisibleTasks(searchTasks).map(t => t.id));
+  });
+
+  it('一致タスクと祖先を返す', () => {
+    const ids = getFilteredVisibleTasks(searchTasks, '設計').map(t => t.id);
+    expect(ids).toContain('2'); // 一致
+    expect(ids).toContain('1'); // 祖先
+    expect(ids).not.toContain('3');
+    expect(ids).not.toContain('4');
+  });
+
+  it('折りたたまれていても一致タスクを表示する', () => {
+    const collapsed = searchTasks.map(t => t.id === '1' ? { ...t, collapsed: true } : t);
+    const ids = getFilteredVisibleTasks(collapsed, '実装').map(t => t.id);
+    expect(ids).toContain('3');
+    expect(ids).toContain('1');
+  });
+
+  it('一致なしなら空配列', () => {
+    expect(getFilteredVisibleTasks(searchTasks, 'zzz')).toHaveLength(0);
+  });
+});
 
 describe('getChildren', () => {
   it('returns direct children', () => {

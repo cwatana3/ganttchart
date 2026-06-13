@@ -117,3 +117,47 @@
 .spacer {
   flex: 1;
 }
+
+.searchBox {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-color);
+  box-shadow: var(--shadow-sm);
+}
+
+.searchIcon {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.searchInput {
+  border: none;
+  background: transparent;
+  color: var(--text-color);
+  font-family: var(--font-body);
+  font-size: 13px;
+  outline: none;
+  width: 130px;
+}
+
+.searchInput::placeholder {
+  color: var(--text-muted);
+}
+
+.searchClear {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.searchClear:hover {
+  color: var(--text-color);
+}
