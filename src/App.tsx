@@ -3,6 +3,7 @@ import { Toolbar } from './components/Toolbar/Toolbar';
 import { TaskTable } from './components/TaskTable/TaskTable';
 import { GanttView } from './components/GanttView/GanttView';
 import { CalendarSettings } from './components/CalendarSettings/CalendarSettings';
+import { ExportDialog } from './components/ExportDialog/ExportDialog';
 import { SplitPane } from './components/SplitPane/SplitPane';
 import { StatusBar } from './components/StatusBar/StatusBar';
 import { ContextMenu } from './components/ContextMenu/ContextMenu';
@@ -18,6 +19,7 @@ const BAR_COLORS: (string | null)[] = [
 
 export function App() {
   const [showCalendar, setShowCalendar] = useState(false);
+  const [showExport, setShowExport] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; taskId: string | null } | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const ganttRef = useRef<HTMLDivElement | null>(null);
@@ -305,6 +307,7 @@ export function App() {
     <div className={styles.app}>
       <Toolbar
         onOpenCalendar={() => setShowCalendar(true)}
+        onOpenExport={() => setShowExport(true)}
         onToday={() => scrollToTodayRef.current?.()}
       />
       <SplitPane
@@ -315,6 +318,9 @@ export function App() {
       <StatusBar />
       {showCalendar && (
         <CalendarSettings onClose={() => setShowCalendar(false)} />
+      )}
+      {showExport && (
+        <ExportDialog onClose={() => setShowExport(false)} />
       )}
       {contextMenu && (
         <ContextMenu

@@ -230,4 +230,13 @@ describe('buildGanttSvg', () => {
     const svg = buildGanttSvg(project, false, 'day');
     expect(svg.querySelectorAll('rect[fill="#94a3b8"]')).toHaveLength(0);
   });
+
+  it('limits the timeline width to an explicit date range', () => {
+    const project = makeProject([
+      makeTask({ id: 'a', name: 'A', startDate: '2026-06-01', endDate: '2026-08-31', duration: 60 }),
+    ]);
+    const full = buildGanttSvg(project, false, 'day');
+    const ranged = buildGanttSvg(project, false, 'day', false, { start: '2026-06-10', end: '2026-06-20' });
+    expect(Number(ranged.getAttribute('width'))).toBeLessThan(Number(full.getAttribute('width')));
+  });
 });

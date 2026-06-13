@@ -1,17 +1,18 @@
 import { useRef } from 'react';
 import { useProject } from '../../store/ProjectContext';
 import { useTheme } from '../../store/ThemeContext';
-import { importFromJSON, exportToJSON, exportToSVG, exportToPNG, printGantt } from '../../utils/export';
+import { importFromJSON, exportToJSON } from '../../utils/export';
 import { exportTasksToCSV, parseTasksFromCSV } from '../../utils/csv';
 import { canIndent, canOutdent } from '../../utils/taskTree';
 import styles from './Toolbar.module.css';
 
 interface ToolbarProps {
   onOpenCalendar: () => void;
+  onOpenExport: () => void;
   onToday?: () => void;
 }
 
-export function Toolbar({ onOpenCalendar, onToday }: ToolbarProps) {
+export function Toolbar({ onOpenCalendar, onOpenExport, onToday }: ToolbarProps) {
   const {
     project,
     dispatch,
@@ -87,22 +88,6 @@ export function Toolbar({ onOpenCalendar, onToday }: ToolbarProps) {
       dispatch({ type: 'DELETE_TASKS', ids: selectedTaskIds });
       setSelectedTaskIds([]);
     }
-  };
-
-  const handleExportSVG = () => {
-    exportToSVG(project, light, viewMode, showCriticalPath);
-  };
-
-  const handleExportPNG = async () => {
-    try {
-      await exportToPNG(project, light, viewMode, showCriticalPath);
-    } catch {
-      alert('PNGの書き出しに失敗しました');
-    }
-  };
-
-  const handlePrint = () => {
-    printGantt(project, light, viewMode, showCriticalPath);
   };
 
   const hasBaseline = !!project.baseline;
@@ -283,9 +268,7 @@ export function Toolbar({ onOpenCalendar, onToday }: ToolbarProps) {
       <div className={styles.separator} />
 
       <button className={styles.button} onClick={onOpenCalendar}>📅 カレンダー設定</button>
-      <button className={styles.button} onClick={handleExportSVG}>🖼 SVG出力</button>
-      <button className={styles.button} onClick={handleExportPNG}>🏞 PNG出力</button>
-      <button className={styles.button} onClick={handlePrint}>🖨 印刷</button>
+      <button className={styles.button} onClick={onOpenExport}>📤 エクスポート…</button>
       <button className={styles.button} onClick={handleExportCSV}>📊 CSV出力</button>
       <button className={styles.button} onClick={handleImportCSVClick}>📥 CSV取込</button>
 

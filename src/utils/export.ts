@@ -270,7 +270,12 @@ function computeColWidths(tasks: Task[], specs: ColSpec[]): {
 
 // ─── export ────────────────────────────────────────────────────────
 
-export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' | 'week' | 'month' = 'day', showCriticalPath = false): SVGSVGElement {
+export interface ExportDateRange {
+  start?: string;
+  end?: string;
+}
+
+export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' | 'week' | 'month' = 'day', showCriticalPath = false, dateRange?: ExportDateRange): SVGSVGElement {
   const C: Colors = light ? LIGHT : DARK;
   const visibleTasks = getVisibleTasks(project.tasks);
   const { specs, colColor } = getColSpecs(C, project.tasks);
@@ -323,6 +328,11 @@ export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' 
       minDate = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
     }
   }
+
+  // ユーザー指定の期間で上書き（カラム軸のみ。タスク行はそのまま表示）
+  if (dateRange?.start) minDate = toDate(dateRange.start);
+  if (dateRange?.end) maxDate = toDate(dateRange.end);
+  if (maxDate < minDate) maxDate = minDate;
 
   const totalDays = differenceInCalendarDays(maxDate, minDate) + 1;
   const chartW = totalDays * colWidth + PADDING_X * 2;
@@ -841,8 +851,8 @@ export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' 
   return svg;
 }
 
-export function exportToSVG(project: Project, light: boolean, viewMode: 'day' | 'week' | 'month' = 'day', showCriticalPath = false): void {
-  const svg = buildGanttSvg(project, light, viewMode, showCriticalPath);
+export function exportToSVG(project: Project, light: boolean, viewMode: 'day' | 'week' | 'month' = 'day', showCriticalPath = false, dateRange?: ExportDateRange): void {
+  const svg = buildGanttSvg(project, light, viewMode, showCriticalPath, dateRange);
   const svgString = new XMLSerializer().serializeToString(svg);
   const blob = new Blob([svgString], { type: 'image/svg+xml' });
   downloadBlob(blob, `${project.name}.svg`);
@@ -864,8 +874,9 @@ export async function exportToPNG(
   viewMode: 'day' | 'week' | 'month' = 'day',
   showCriticalPath = false,
   scale = 2,
+  dateRange?: ExportDateRange,
 ): Promise<void> {
-  const svg = buildGanttSvg(project, light, viewMode, showCriticalPath);
+  const svg = buildGanttSvg(project, light, viewMode, showCriticalPath, dateRange);
   const width = Number(svg.getAttribute('width')) || 800;
   const height = Number(svg.getAttribute('height')) || 600;
   const svgString = new XMLSerializer().serializeToString(svg);
@@ -897,8 +908,9 @@ export function printGantt(
   light: boolean,
   viewMode: 'day' | 'week' | 'month' = 'day',
   showCriticalPath = false,
+  dateRange?: ExportDateRange,
 ): void {
-  const svg = buildGanttSvg(project, light, viewMode, showCriticalPath);
+  const svg = buildGanttSvg(project, light, viewMode, showCriticalPath, dateRange);
   const svgString = new XMLSerializer().serializeToString(svg);
   const win = window.open('', '_blank');
   if (!win) {
