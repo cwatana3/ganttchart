@@ -783,6 +783,16 @@ export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' 
     const isSummary = project.tasks.some(t => t.parentId === task.id);
     const isCritical = criticalIds.has(task.id);
 
+    // Baseline (planned) bar beneath the task bar — solid color (no transparency)
+    const base = project.baseline?.[task.id];
+    if (base) {
+      const bx1 = getX(base.startDate);
+      const bx2 = getX(base.endDate);
+      const bw = Math.max(3, bx2 - bx1);
+      const baseRect = rectEl(bx1, barY + BAR_H + 2, bw, 3, '#94a3b8', undefined, 1);
+      chart.appendChild(baseRect);
+    }
+
     if (task.isMilestone) {
       const cx = x1 + colWidth / 2;
       const cy = barY + BAR_H / 2;

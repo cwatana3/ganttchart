@@ -213,4 +213,21 @@ describe('buildGanttSvg', () => {
     const svg = buildGanttSvg(chainProject(), false, 'day', false);
     expect(svg.querySelectorAll('[stroke="#e11d48"]')).toHaveLength(0);
   });
+
+  it('renders baseline bars when a baseline is recorded', () => {
+    const project = makeProject([
+      makeTask({ id: 'a', name: 'A', startDate: '2026-06-10', endDate: '2026-06-12', duration: 2 }),
+    ]);
+    project.baseline = { a: { startDate: '2026-06-08', endDate: '2026-06-10' } };
+    const svg = buildGanttSvg(project, false, 'day');
+    expect(svg.querySelectorAll('rect[fill="#94a3b8"]').length).toBeGreaterThan(0);
+  });
+
+  it('renders no baseline bars without a baseline', () => {
+    const project = makeProject([
+      makeTask({ id: 'a', name: 'A', startDate: '2026-06-10', endDate: '2026-06-12', duration: 2 }),
+    ]);
+    const svg = buildGanttSvg(project, false, 'day');
+    expect(svg.querySelectorAll('rect[fill="#94a3b8"]')).toHaveLength(0);
+  });
 });

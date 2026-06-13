@@ -105,6 +105,17 @@ export function Toolbar({ onOpenCalendar, onToday }: ToolbarProps) {
     printGantt(project, light, viewMode, showCriticalPath);
   };
 
+  const hasBaseline = !!project.baseline;
+  const handleBaseline = () => {
+    if (hasBaseline) {
+      if (confirm('記録済みの基準線（計画）をクリアしますか？')) {
+        dispatch({ type: 'CLEAR_BASELINE' });
+      }
+    } else {
+      dispatch({ type: 'SET_BASELINE' });
+    }
+  };
+
   const handleExportCSV = () => {
     const csv = exportTasksToCSV(project);
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
@@ -260,6 +271,13 @@ export function Toolbar({ onOpenCalendar, onToday }: ToolbarProps) {
         title="クリティカルパス（プロジェクト完了を左右するタスク）を強調表示します"
       >
         🛤 クリティカルパス
+      </button>
+      <button
+        className={`${styles.button} ${hasBaseline ? styles.active : ''}`}
+        onClick={handleBaseline}
+        title={hasBaseline ? '記録済みの基準線をクリアします' : '現在の計画を基準線として記録し、以後の変更と比較表示します'}
+      >
+        {hasBaseline ? '📏 基準線クリア' : '📏 基準線を記録'}
       </button>
 
       <div className={styles.separator} />

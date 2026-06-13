@@ -639,6 +639,29 @@ export function GanttView({ svgRef, wrapperRef, scrollRef, scrollToTodayRef }: G
             });
           })}
 
+          {/* Baseline (planned) bars — drawn beneath each task bar */}
+          {project.baseline && visibleTasks.map((task, i) => {
+            const base = project.baseline![task.id];
+            if (!base) return null;
+            const by = i * ROW_HEIGHT + BAR_Y_OFFSET + BAR_HEIGHT + 2;
+            const bx1 = getX(base.startDate);
+            const bx2 = getX(base.endDate);
+            const bw = Math.max(3, bx2 - bx1);
+            return (
+              <rect
+                key={`base-${task.id}`}
+                x={bx1}
+                y={by}
+                width={bw}
+                height={3}
+                rx={1.5}
+                className={styles.baselineBar}
+              >
+                <title>基準線: {base.startDate} 〜 {base.endDate}</title>
+              </rect>
+            );
+          })}
+
           {/* Temporary linking line */}
           {linkingState && (
             <line

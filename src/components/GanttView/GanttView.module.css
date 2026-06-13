@@ -97,6 +97,12 @@
   pointer-events: none;
 }
 
+.baselineBar {
+  fill: #94a3b8;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
 .dependencyLine {
   fill: none;
   stroke: var(--accent-color);
