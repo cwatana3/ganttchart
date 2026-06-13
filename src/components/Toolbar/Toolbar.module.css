@@ -1,133 +1,88 @@
 .toolbar {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
+  gap: 8px;
+  padding: 8px 14px;
   background: var(--toolbar-bg);
   border-bottom: 1px solid var(--border-color);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
   flex-shrink: 0;
   flex-wrap: wrap;
+  row-gap: 8px;
   z-index: 10;
   box-shadow: var(--shadow-sm);
 }
 
-.separator {
-  width: 1px;
-  height: 20px;
-  background: var(--border-color);
-  margin: 0 6px;
-  opacity: 0.8;
-}
-
-.button {
+/* グループ：関連ボタンを薄い背景のピルにまとめる */
+.group {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: var(--bg-color);
-  color: var(--text-color);
-  font-family: var(--font-body);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: var(--shadow-sm);
-}
-
-.button:hover:not(:disabled) {
-  background: var(--hover-bg);
-  border-color: var(--text-muted);
-  transform: translateY(-1px);
-}
-
-.button:active:not(:disabled) {
-  background: var(--active-bg);
-  transform: translateY(0);
-}
-
-.button:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-  box-shadow: none;
-}
-
-.button.active {
-  background: var(--accent-gradient);
-  color: #ffffff;
-  border-color: transparent;
-}
-
-.button.active:hover:not(:disabled) {
-  background: var(--accent-gradient);
-  color: #ffffff;
-}
-
-.labelGroup {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.labelText {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
-  user-select: none;
-  font-family: var(--font-header);
-}
-
-.segmentedControl {
-  display: flex;
-  background: var(--hover-bg);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  padding: 2px;
   gap: 2px;
+  padding: 3px;
+  background: var(--hover-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
 }
 
-.segmentedButton {
+/* フラットなアイコンボタン */
+.iconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
   border: none;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-color);
-  padding: 4px 12px;
-  font-size: 12.5px;
-  font-weight: 600;
-  border-radius: var(--radius-sm);
   cursor: pointer;
-  font-family: var(--font-body);
-  transition: all 0.2s ease;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
 }
 
-.segmentedButton:hover:not(.active) {
-  background: var(--hover-bg);
-  color: var(--text-color);
+.iconBtn:hover:not(:disabled) {
+  background: var(--active-bg);
 }
 
-.segmentedButton.active {
+.iconBtn:active:not(:disabled) {
+  transform: scale(0.92);
+}
+
+.iconBtn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* トグルがオンの状態 */
+.iconBtn.on {
   background: var(--accent-gradient);
   color: #ffffff;
   box-shadow: var(--shadow-sm);
 }
 
-.spacer {
-  flex: 1;
+.iconBtn.on:hover:not(:disabled) {
+  background: var(--accent-gradient);
+  filter: brightness(1.08);
 }
 
-.projectSwitcher {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.projectSelect {
-  padding: 6px 10px;
+/* スタンドアロンのアイコンボタン（グループ外：今日・テーマ）は枠を付ける */
+.toolbar > .iconBtn {
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
+  background: var(--bg-color);
+  box-shadow: var(--shadow-sm);
+}
+
+.toolbar > .iconBtn:hover:not(:disabled) {
+  background: var(--hover-bg);
+  border-color: var(--text-muted);
+}
+
+/* プロジェクト選択 */
+.projectSelect {
+  height: 32px;
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--radius-sm);
   background: var(--bg-color);
   color: var(--text-color);
   font-family: var(--font-body);
@@ -135,49 +90,77 @@
   font-weight: 600;
   cursor: pointer;
   max-width: 180px;
-  box-shadow: var(--shadow-sm);
+  outline: none;
 }
 
-.iconButton {
+.projectSelect:hover {
+  background: var(--active-bg);
+}
+
+/* 時間軸セグメント */
+.segmented {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
+  gap: 2px;
+  padding: 3px;
+  background: var(--hover-bg);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  background: var(--bg-color);
-  color: var(--text-color);
-  font-size: 13px;
+}
+
+.segBtn {
+  min-width: 34px;
+  height: 26px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 0 10px;
+  font-size: 12.5px;
+  font-weight: 700;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  box-shadow: var(--shadow-sm);
+  font-family: var(--font-header);
   transition: all 0.15s ease;
 }
 
-.iconButton:hover:not(:disabled) {
-  background: var(--hover-bg);
-  border-color: var(--text-muted);
+.segBtn:hover:not(.segActive) {
+  background: var(--active-bg);
+  color: var(--text-color);
 }
 
-.iconButton:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
+.segActive {
+  background: var(--accent-gradient);
+  color: #ffffff;
+  box-shadow: var(--shadow-sm);
 }
 
+.spacer {
+  flex: 1;
+  min-width: 8px;
+}
+
+/* 検索ボックス */
 .searchBox {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   background: var(--bg-color);
   box-shadow: var(--shadow-sm);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.searchBox:focus-within {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 3px var(--selected-bg);
 }
 
 .searchIcon {
-  font-size: 12px;
-  opacity: 0.7;
+  display: inline-flex;
+  color: var(--text-muted);
 }
 
 .searchInput {
@@ -195,15 +178,18 @@
 }
 
 .searchClear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: none;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 15px;
-  line-height: 1;
-  padding: 0 2px;
+  padding: 2px;
+  border-radius: var(--radius-sm);
 }
 
 .searchClear:hover {
   color: var(--text-color);
+  background: var(--active-bg);
 }

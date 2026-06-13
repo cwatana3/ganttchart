@@ -4,6 +4,13 @@ import { useTheme } from '../../store/ThemeContext';
 import { importFromJSON, exportToJSON } from '../../utils/export';
 import { exportTasksToCSV, parseTasksFromCSV } from '../../utils/csv';
 import { canIndent, canOutdent } from '../../utils/taskTree';
+import {
+  IconNewProject, IconDuplicate, IconTrash, IconOpen, IconSave,
+  IconUndo, IconRedo, IconAddTask, IconOutdent, IconIndent,
+  IconCopy, IconCut, IconPaste, IconToday, IconLink, IconCritical,
+  IconBaseline, IconCalendar, IconExport, IconCsvDown, IconCsvUp,
+  IconHistory, IconSearch, IconSun, IconMoon, IconClose,
+} from './icons';
 import styles from './Toolbar.module.css';
 
 interface ToolbarProps {
@@ -45,10 +52,6 @@ export function Toolbar({ onOpenCalendar, onOpenExport, onOpenBackup, onToday }:
   const { light, toggle: toggleTheme } = useTheme();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
-
-  const handleNew = () => {
-    createProject();
-  };
 
   const handleDeleteProject = () => {
     const meta = projectList.find(p => p.id === activeProjectId);
@@ -152,7 +155,8 @@ export function Toolbar({ onOpenCalendar, onOpenExport, onOpenBackup, onToday }:
 
   return (
     <div className={styles.toolbar}>
-      <div className={styles.projectSwitcher}>
+      {/* プロジェクト切替 */}
+      <div className={styles.group}>
         <select
           className={styles.projectSelect}
           value={activeProjectId}
@@ -163,156 +167,91 @@ export function Toolbar({ onOpenCalendar, onOpenExport, onOpenBackup, onToday }:
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
         </select>
-        <button className={styles.iconButton} onClick={createProject} title="新規プロジェクト">＋</button>
-        <button className={styles.iconButton} onClick={duplicateProject} title="プロジェクトを複製">⧉</button>
+        <button className={styles.iconBtn} onClick={createProject} title="新規プロジェクト"><IconNewProject /></button>
+        <button className={styles.iconBtn} onClick={duplicateProject} title="プロジェクトを複製"><IconDuplicate /></button>
         <button
-          className={styles.iconButton}
+          className={styles.iconBtn}
           onClick={handleDeleteProject}
           disabled={projectList.length <= 1}
           title="プロジェクトを削除"
         >
-          🗑
+          <IconTrash />
         </button>
       </div>
 
-      <div className={styles.separator} />
-
-      <button className={styles.button} onClick={handleNew}>📄 新規</button>
-      <button className={styles.button} onClick={handleOpen}>📂 開く</button>
-      <button className={styles.button} onClick={handleSave}>💾 保存</button>
-      <button
-        className={styles.button}
-        onClick={undo}
-        disabled={!canUndo}
-        title="元に戻す (Ctrl+Z)"
-      >
-        ⎌ 戻す
-      </button>
-      <button
-        className={styles.button}
-        onClick={redo}
-        disabled={!canRedo}
-        title="やり直す (Ctrl+Y)"
-      >
-        ↻ やり直す
-      </button>
-
-      <div className={styles.separator} />
-
-      <button className={styles.button} onClick={handleAddTask}>＋ タスク追加</button>
-      <button
-        className={styles.button}
-        onClick={handleOutdent}
-        disabled={isOutdentDisabled}
-        title="左へインデント（親子関係を上げる）"
-      >
-        ⇤ アウトデント
-      </button>
-      <button
-        className={styles.button}
-        onClick={handleIndent}
-        disabled={isIndentDisabled}
-        title="右へインデント（親子関係を下げる）"
-      >
-        ⇥ インデント
-      </button>
-
-      <div className={styles.separator} />
-
-      <button
-        className={styles.button}
-        onClick={() => selectedTaskId && copyTask(selectedTaskId)}
-        disabled={!selectedTaskId}
-        title="コピー (Ctrl+C)"
-      >
-        📋 コピー
-      </button>
-      <button
-        className={styles.button}
-        onClick={() => selectedTaskId && cutTask(selectedTaskId)}
-        disabled={!selectedTaskId}
-        title="切り取り (Ctrl+X)"
-      >
-        ✂ カット
-      </button>
-      <button
-        className={styles.button}
-        onClick={pasteTask}
-        disabled={!canPaste}
-        title="貼り付け (Ctrl+V)"
-      >
-        📥 ペースト
-      </button>
-      <button
-        className={styles.button}
-        onClick={handleDeleteTask}
-        disabled={selectedTaskIds.length === 0}
-        title="削除 (Delete)"
-      >
-        🗑 削除
-      </button>
-
-      <div className={styles.separator} />
-
-      <div className={styles.labelGroup}>
-        <span className={styles.labelText}>時間軸:</span>
-        <div className={styles.segmentedControl}>
-          <button
-            className={`${styles.segmentedButton} ${viewMode === 'day' ? styles.active : ''}`}
-            onClick={() => setViewMode('day')}
-          >
-            日
-          </button>
-          <button
-            className={`${styles.segmentedButton} ${viewMode === 'week' ? styles.active : ''}`}
-            onClick={() => setViewMode('week')}
-          >
-            週
-          </button>
-          <button
-            className={`${styles.segmentedButton} ${viewMode === 'month' ? styles.active : ''}`}
-            onClick={() => setViewMode('month')}
-          >
-            月
-          </button>
-        </div>
+      {/* ファイル入出力（JSON） */}
+      <div className={styles.group}>
+        <button className={styles.iconBtn} onClick={handleOpen} title="JSONを開く"><IconOpen /></button>
+        <button className={styles.iconBtn} onClick={handleSave} title="JSONを保存"><IconSave /></button>
       </div>
-      <button className={styles.button} onClick={onToday} title="今日の位置へスクロール">📍 今日</button>
 
-      <button
-        className={`${styles.button} ${project.autoSchedule ? styles.active : ''}`}
-        onClick={() => dispatch({ type: 'SET_AUTO_SCHEDULE', enabled: !project.autoSchedule })}
-        title="依存関係に基づいて後続タスクを自動で後送りします"
-      >
-        {project.autoSchedule ? '🔗 自動配置: ON' : '🔗 自動配置: OFF'}
-      </button>
-      <button
-        className={`${styles.button} ${showCriticalPath ? styles.active : ''}`}
-        onClick={() => setShowCriticalPath(v => !v)}
-        title="クリティカルパス（プロジェクト完了を左右するタスク）を強調表示します"
-      >
-        🛤 クリティカルパス
-      </button>
-      <button
-        className={`${styles.button} ${hasBaseline ? styles.active : ''}`}
-        onClick={handleBaseline}
-        title={hasBaseline ? '記録済みの基準線をクリアします' : '現在の計画を基準線として記録し、以後の変更と比較表示します'}
-      >
-        {hasBaseline ? '📏 基準線クリア' : '📏 基準線を記録'}
-      </button>
+      {/* 取り消し／やり直し */}
+      <div className={styles.group}>
+        <button className={styles.iconBtn} onClick={undo} disabled={!canUndo} title="元に戻す (Ctrl+Z)"><IconUndo /></button>
+        <button className={styles.iconBtn} onClick={redo} disabled={!canRedo} title="やり直す (Ctrl+Y)"><IconRedo /></button>
+      </div>
 
-      <div className={styles.separator} />
+      {/* タスク編集 */}
+      <div className={styles.group}>
+        <button className={styles.iconBtn} onClick={handleAddTask} title="タスク追加 (Enter)"><IconAddTask /></button>
+        <button className={styles.iconBtn} onClick={handleOutdent} disabled={isOutdentDisabled} title="アウトデント (Shift+Tab)"><IconOutdent /></button>
+        <button className={styles.iconBtn} onClick={handleIndent} disabled={isIndentDisabled} title="インデント (Tab)"><IconIndent /></button>
+      </div>
 
-      <button className={styles.button} onClick={onOpenCalendar}>📅 カレンダー設定</button>
-      <button className={styles.button} onClick={onOpenExport}>📤 エクスポート…</button>
-      <button className={styles.button} onClick={handleExportCSV}>📊 CSV出力</button>
-      <button className={styles.button} onClick={handleImportCSVClick}>📥 CSV取込</button>
-      <button className={styles.button} onClick={onOpenBackup} title="自動バックアップから復元">🕑 履歴</button>
+      {/* クリップボード */}
+      <div className={styles.group}>
+        <button className={styles.iconBtn} onClick={() => selectedTaskId && copyTask(selectedTaskId)} disabled={!selectedTaskId} title="コピー (Ctrl+C)"><IconCopy /></button>
+        <button className={styles.iconBtn} onClick={() => selectedTaskId && cutTask(selectedTaskId)} disabled={!selectedTaskId} title="切り取り (Ctrl+X)"><IconCut /></button>
+        <button className={styles.iconBtn} onClick={pasteTask} disabled={!canPaste} title="貼り付け (Ctrl+V)"><IconPaste /></button>
+        <button className={styles.iconBtn} onClick={handleDeleteTask} disabled={selectedTaskIds.length === 0} title="削除 (Delete)"><IconTrash /></button>
+      </div>
+
+      {/* 時間軸 */}
+      <div className={styles.segmented}>
+        <button className={`${styles.segBtn} ${viewMode === 'day' ? styles.segActive : ''}`} onClick={() => setViewMode('day')}>日</button>
+        <button className={`${styles.segBtn} ${viewMode === 'week' ? styles.segActive : ''}`} onClick={() => setViewMode('week')}>週</button>
+        <button className={`${styles.segBtn} ${viewMode === 'month' ? styles.segActive : ''}`} onClick={() => setViewMode('month')}>月</button>
+      </div>
+      <button className={styles.iconBtn} onClick={onToday} title="今日の位置へスクロール"><IconToday /></button>
+
+      {/* 表示トグル */}
+      <div className={styles.group}>
+        <button
+          className={`${styles.iconBtn} ${project.autoSchedule ? styles.on : ''}`}
+          onClick={() => dispatch({ type: 'SET_AUTO_SCHEDULE', enabled: !project.autoSchedule })}
+          title={project.autoSchedule ? '自動配置: ON（依存に基づき後続を自動で後送り）' : '自動配置: OFF'}
+        >
+          <IconLink />
+        </button>
+        <button
+          className={`${styles.iconBtn} ${showCriticalPath ? styles.on : ''}`}
+          onClick={() => setShowCriticalPath(v => !v)}
+          title="クリティカルパスを強調表示"
+        >
+          <IconCritical />
+        </button>
+        <button
+          className={`${styles.iconBtn} ${hasBaseline ? styles.on : ''}`}
+          onClick={handleBaseline}
+          title={hasBaseline ? '基準線をクリア' : '現在の計画を基準線として記録'}
+        >
+          <IconBaseline />
+        </button>
+      </div>
+
+      {/* 設定・エクスポート */}
+      <div className={styles.group}>
+        <button className={styles.iconBtn} onClick={onOpenCalendar} title="カレンダー設定"><IconCalendar /></button>
+        <button className={styles.iconBtn} onClick={onOpenExport} title="エクスポート（SVG / PNG / 印刷）"><IconExport /></button>
+        <button className={styles.iconBtn} onClick={handleExportCSV} title="CSV出力"><IconCsvDown /></button>
+        <button className={styles.iconBtn} onClick={handleImportCSVClick} title="CSV取込"><IconCsvUp /></button>
+        <button className={styles.iconBtn} onClick={onOpenBackup} title="自動バックアップから復元"><IconHistory /></button>
+      </div>
 
       <div className={styles.spacer} />
 
       <div className={styles.searchBox}>
-        <span className={styles.searchIcon}>🔍</span>
+        <span className={styles.searchIcon}><IconSearch /></span>
         <input
           type="text"
           className={styles.searchInput}
@@ -321,22 +260,18 @@ export function Toolbar({ onOpenCalendar, onOpenExport, onOpenBackup, onToday }:
           onChange={e => setFilterText(e.target.value)}
         />
         {filterText && (
-          <button
-            className={styles.searchClear}
-            onClick={() => setFilterText('')}
-            title="検索をクリア"
-          >
-            ×
+          <button className={styles.searchClear} onClick={() => setFilterText('')} title="検索をクリア">
+            <IconClose />
           </button>
         )}
       </div>
 
       <button
-        className={styles.button}
+        className={styles.iconBtn}
         onClick={toggleTheme}
         title={light ? 'ダークモードに切替' : 'ライトモードに切替'}
       >
-        {light ? '☀' : '🌙'}
+        {light ? <IconSun /> : <IconMoon />}
       </button>
 
       <input
