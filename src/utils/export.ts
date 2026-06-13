@@ -942,6 +942,30 @@ export async function copyGanttToClipboard(
   await navigator.clipboard.write([new ClipboardItem({ 'image/png': blobPromise })]);
 }
 
+// ─── 印刷（1ページ収め）─────────────────────────────────────────────
+
+export type PaperSize = 'A4' | 'A3' | 'Letter';
+
+export interface PrintOptions {
+  /** 用紙1ページに収まるよう縮小する（既定 true） */
+  fitToPage?: boolean;
+  /** 用紙サイズ（既定 A4） */
+  paper?: PaperSize;
+  /** 用紙の向き（auto は縮小率が大きい方を自動選択。既定 auto） */
+  orientation?: 'auto' | 'landscape' | 'portrait';
+}
+
+/** 用紙サイズ（mm, 縦向き基準の 幅 × 高さ） */
+const PAPER_MM: Record<PaperSize, { w: number; h: number }> = {
+  A4: { w: 210, h: 297 },
+  A3: { w: 297, h: 420 },
+  Letter: { w: 215.9, h: 279.4 },
+};
+const PRINT_MARGIN_MM = 10;
+const MM_TO_PX = 96 / 25.4; // CSS の 1px = 1/96in
+// 端で2ページ目に溢れないための安全マージン
+const FIT_SAFETY = 0.985;
+
 /** ガントを別ウィンドウで開いて印刷ダイアログを表示する */
 export function printGantt(
   project: Project,
@@ -949,25 +973,99 @@ export function printGantt(
   viewMode: 'day' | 'week' | 'month' = 'day',
   showCriticalPath = false,
   dateRange?: ExportDateRange,
+  options?: PrintOptions,
 ): void {
   const svg = buildGanttSvg(project, light, viewMode, showCriticalPath, dateRange);
+  const svgW = Number(svg.getAttribute('width')) || 800;
+  const svgH = Number(svg.getAttribute('height')) || 600;
+  // viewBox が無いと CSS で幅高を指定したとき内容が縮小されず「切り取られる」ため必須
+  svg.setAttribute('viewBox', `0 0 ${svgW} ${svgH}`);
+  svg.setAttribute('preserveAspectRatio', 'xMinYMin meet');
+
+  const fitToPage = options?.fitToPage ?? true;
+  const paper = options?.paper ?? 'A4';
+  const orientationOpt = options?.orientation ?? 'auto';
+  const { w: paperW, h: paperH } = PAPER_MM[paper];
+
+  // 指定向きの印刷可能領域（px）
+  const printablePx = (landscape: boolean) => {
+    const pw = landscape ? paperH : paperW;
+    const ph = landscape ? paperW : paperH;
+    return {
+      w: (pw - 2 * PRINT_MARGIN_MM) * MM_TO_PX,
+      h: (ph - 2 * PRINT_MARGIN_MM) * MM_TO_PX,
+    };
+  };
+  // その向きで1ページに収めるための縮小率（拡大はしない）
+  const fitScale = (landscape: boolean) => {
+    const a = printablePx(landscape);
+    return Math.min(a.w / svgW, a.h / svgH);
+  };
+
+  let landscape: boolean;
+  let scale = 1;
+
+  if (orientationOpt === 'auto') {
+    // 縮小が少なくて済む（＝大きく印刷できる）向きを採用
+    landscape = fitScale(true) >= fitScale(false);
+  } else {
+    landscape = orientationOpt === 'landscape';
+  }
+
+  if (fitToPage) {
+    scale = Math.min(1, fitScale(landscape) * FIT_SAFETY);
+  }
+
   const svgString = new XMLSerializer().serializeToString(svg);
-  const win = window.open('', '_blank');
-  if (!win) {
-    alert('印刷ウィンドウを開けませんでした。ポップアップを許可してください。');
+  const bg = light ? '#ffffff' : '#1e1e1e';
+  const sizeRule = `@page{size:${paper} ${landscape ? 'landscape' : 'portrait'};margin:${PRINT_MARGIN_MM}mm;}`;
+  // fit 時はピクセル指定で1ページに収める。非 fit 時は等倍（複数ページ可）。
+  const svgStyle = fitToPage
+    ? `width:${(svgW * scale).toFixed(2)}px;height:${(svgH * scale).toFixed(2)}px;display:block;`
+    : `display:block;`;
+  const html =
+    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${project.name}</title>` +
+    `<style>${sizeRule}html,body{margin:0;background:${bg};}svg{${svgStyle}}</style>` +
+    `</head><body>${svgString}</body></html>`;
+
+  // 画面に見えない iframe にレンダリングして印刷する（ウィンドウを開かない）。
+  // display:none だと印刷されないブラウザがあるため、画面外に逃がす。
+  const iframe = document.createElement('iframe');
+  iframe.setAttribute('aria-hidden', 'true');
+  iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+  document.body.appendChild(iframe);
+
+  const frameWin = iframe.contentWindow;
+  const doc = frameWin?.document;
+  if (!frameWin || !doc) {
+    iframe.remove();
+    alert('印刷用の描画に失敗しました');
     return;
   }
-  const bg = light ? '#ffffff' : '#1e1e1e';
-  win.document.write(
-    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${project.name}</title>` +
-    `<style>@page{margin:10mm;}html,body{margin:0;background:${bg};}svg{max-width:100%;height:auto;display:block;}</style>` +
-    `</head><body>${svgString}</body></html>`
-  );
-  win.document.close();
-  win.focus();
+
+  let removed = false;
+  const cleanup = () => {
+    if (removed) return;
+    removed = true;
+    iframe.remove();
+  };
+
+  doc.open();
+  doc.write(html);
+  doc.close();
+
+  // onafterprint で後始末（発火しないブラウザ向けにフォールバックも用意）
+  frameWin.onafterprint = cleanup;
   setTimeout(() => {
-    try { win.print(); } catch { /* ユーザーが手動で印刷 */ }
+    try {
+      frameWin.focus();
+      frameWin.print();
+    } catch {
+      cleanup();
+    }
   }, 300);
+  // 印刷ダイアログを開いたまま放置された場合の保険
+  setTimeout(cleanup, 60000);
 }
 
 function downloadBlob(blob: Blob, filename: string): void {
