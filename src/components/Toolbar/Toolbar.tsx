@@ -20,6 +20,8 @@ export function Toolbar({ onOpenCalendar, onToday }: ToolbarProps) {
     setSelectedTaskId,
     viewMode,
     setViewMode,
+    showCriticalPath,
+    setShowCriticalPath,
     undo,
     canUndo,
     redo,
@@ -84,7 +86,7 @@ export function Toolbar({ onOpenCalendar, onToday }: ToolbarProps) {
   };
 
   const handleExportSVG = () => {
-    exportToSVG(project, light, viewMode);
+    exportToSVG(project, light, viewMode, showCriticalPath);
   };
 
   const isIndentDisabled = !selectedTaskId || !canIndent(selectedTaskId, project.tasks);
@@ -200,6 +202,13 @@ export function Toolbar({ onOpenCalendar, onToday }: ToolbarProps) {
         title="依存関係に基づいて後続タスクを自動で後送りします"
       >
         {project.autoSchedule ? '🔗 自動配置: ON' : '🔗 自動配置: OFF'}
+      </button>
+      <button
+        className={`${styles.button} ${showCriticalPath ? styles.active : ''}`}
+        onClick={() => setShowCriticalPath(v => !v)}
+        title="クリティカルパス（プロジェクト完了を左右するタスク）を強調表示します"
+      >
+        🛤 クリティカルパス
       </button>
 
       <div className={styles.separator} />

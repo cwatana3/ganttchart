@@ -195,4 +195,22 @@ describe('buildGanttSvg', () => {
     const svg = buildGanttSvg(sampleProject(), false, mode);
     expect(svg.querySelectorAll('rect[fill="url(#task-gradient)"]')).toHaveLength(2);
   });
+
+  function chainProject(): Project {
+    return makeProject([
+      makeTask({ id: 'a', name: 'A', startDate: '2026-06-08', endDate: '2026-06-10', duration: 2 }),
+      makeTask({ id: 'b', name: 'B', startDate: '2026-06-10', endDate: '2026-06-12', duration: 2, dependencies: ['a'] }),
+    ]);
+  }
+
+  it('highlights critical-path bars when enabled', () => {
+    const svg = buildGanttSvg(chainProject(), false, 'day', true);
+    const reds = Array.from(svg.querySelectorAll('[stroke="#e11d48"]'));
+    expect(reds.length).toBeGreaterThan(0);
+  });
+
+  it('does not highlight critical path when disabled', () => {
+    const svg = buildGanttSvg(chainProject(), false, 'day', false);
+    expect(svg.querySelectorAll('[stroke="#e11d48"]')).toHaveLength(0);
+  });
 });

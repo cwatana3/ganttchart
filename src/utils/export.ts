@@ -6,7 +6,7 @@ import {
 } from './taskTree';
 import { toDate, fromDate } from './calendar';
 import { formatDeps, depRefs } from './deps';
-import { isDepViolated } from './schedule';
+import { isDepViolated, criticalTaskIds } from './schedule';
 import { darken } from './color';
 import { addDays, differenceInCalendarDays } from 'date-fns';
 
@@ -270,10 +270,12 @@ function computeColWidths(tasks: Task[], specs: ColSpec[]): {
 
 // ─── export ────────────────────────────────────────────────────────
 
-export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' | 'week' | 'month' = 'day'): SVGSVGElement {
+export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' | 'week' | 'month' = 'day', showCriticalPath = false): SVGSVGElement {
   const C: Colors = light ? LIGHT : DARK;
   const visibleTasks = getVisibleTasks(project.tasks);
   const { specs, colColor } = getColSpecs(C, project.tasks);
+  const criticalIds = showCriticalPath ? criticalTaskIds(project.tasks, project.calendar) : new Set<string>();
+  const CRITICAL_STROKE = '#e11d48';
 
   // ─── date range & scaling ──────────────────────────────────
   const colWidth = viewMode === 'week' ? 8 : viewMode === 'month' ? 2 : 32;
@@ -779,6 +781,7 @@ export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' 
     const x2 = getX(task.endDate);
     const w = Math.max(4, x2 - x1);
     const isSummary = project.tasks.some(t => t.parentId === task.id);
+    const isCritical = criticalIds.has(task.id);
 
     if (task.isMilestone) {
       const cx = x1 + colWidth / 2;
@@ -787,8 +790,8 @@ export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' 
       const poly = svgEl('polygon');
       poly.setAttribute('points', pts);
       poly.setAttribute('fill', task.color ?? 'url(#milestone-gradient)');
-      poly.setAttribute('stroke', task.color ? darken(task.color, 0.7) : C.milestoneStroke);
-      poly.setAttribute('stroke-width', '1');
+      poly.setAttribute('stroke', isCritical ? CRITICAL_STROKE : task.color ? darken(task.color, 0.7) : C.milestoneStroke);
+      poly.setAttribute('stroke-width', isCritical ? '2.5' : '1');
       chart.appendChild(poly);
     } else if (isSummary) {
         const dPath = [
@@ -803,17 +806,17 @@ export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' 
       const path = svgEl('path');
       path.setAttribute('d', dPath);
       path.setAttribute('fill', 'url(#summary-gradient)');
-      path.setAttribute('stroke', C.summaryBarStroke);
-      path.setAttribute('stroke-width', '1');
+      path.setAttribute('stroke', isCritical ? CRITICAL_STROKE : C.summaryBarStroke);
+      path.setAttribute('stroke-width', isCritical ? '2.5' : '1');
       chart.appendChild(path);
     } else {
       const rect = rectEl(
         x1, barY, w, BAR_H,
         task.color ?? 'url(#task-gradient)',
-        task.color ? darken(task.color, 0.7) : C.taskBarStroke,
+        isCritical ? CRITICAL_STROKE : task.color ? darken(task.color, 0.7) : C.taskBarStroke,
         3,
       );
-      rect.setAttribute('stroke-width', '1');
+      rect.setAttribute('stroke-width', isCritical ? '2.5' : '1');
       chart.appendChild(rect);
 
       // Progress fill (solid color blend — no transparency allowed in export)
@@ -828,8 +831,8 @@ export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' 
   return svg;
 }
 
-export function exportToSVG(project: Project, light: boolean, viewMode: 'day' | 'week' | 'month' = 'day'): void {
-  const svg = buildGanttSvg(project, light, viewMode);
+export function exportToSVG(project: Project, light: boolean, viewMode: 'day' | 'week' | 'month' = 'day', showCriticalPath = false): void {
+  const svg = buildGanttSvg(project, light, viewMode, showCriticalPath);
   const svgString = new XMLSerializer().serializeToString(svg);
   const blob = new Blob([svgString], { type: 'image/svg+xml' });
   downloadBlob(blob, `${project.name}.svg`);

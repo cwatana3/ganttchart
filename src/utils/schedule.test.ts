@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { shiftWorkingDays, constraintDate, isDepViolated, scheduleProject } from './schedule';
+import { shiftWorkingDays, constraintDate, isDepViolated, scheduleProject, criticalTaskIds } from './schedule';
 import type { Calendar, Task, DependencyRef } from '../types';
 
 // 2026-06-08 (月) 〜 2026-06-12 (金) が平日の週
@@ -184,5 +184,63 @@ describe('scheduleProject', () => {
       makeTask({ id: 'b', startDate: '2026-06-08', endDate: '2026-06-10', duration: 2, dependencies: ['a'] }),
     ];
     expect(() => scheduleProject(tasks, calendar)).not.toThrow();
+  });
+});
+
+describe('criticalTaskIds', () => {
+  it('単純な FS チェーンは全て critical', () => {
+    const tasks = [
+      makeTask({ id: 'a', startDate: '2026-06-08', endDate: '2026-06-10', duration: 2 }),
+      makeTask({ id: 'b', startDate: '2026-06-10', endDate: '2026-06-12', duration: 2, dependencies: ['a'] }),
+    ];
+    const critical = criticalTaskIds(tasks, calendar);
+    expect(critical.has('a')).toBe(true);
+    expect(critical.has('b')).toBe(true);
+  });
+
+  it('余裕のある並行タスクは critical ではない', () => {
+    const tasks = [
+      // クリティカル: a(2日)→b(3日) で 6/15 完了
+      makeTask({ id: 'a', startDate: '2026-06-08', endDate: '2026-06-10', duration: 2 }),
+      makeTask({ id: 'b', startDate: '2026-06-10', endDate: '2026-06-15', duration: 3, dependencies: ['a'] }),
+      // 余裕あり: c は早く終わりプロジェクト完了より前
+      makeTask({ id: 'c', startDate: '2026-06-08', endDate: '2026-06-09', duration: 1 }),
+    ];
+    const critical = criticalTaskIds(tasks, calendar);
+    expect(critical.has('a')).toBe(true);
+    expect(critical.has('b')).toBe(true);
+    expect(critical.has('c')).toBe(false);
+  });
+
+  it('プロジェクト完了日で終わるタスクが critical', () => {
+    const tasks = [
+      makeTask({ id: 'a', startDate: '2026-06-08', endDate: '2026-06-12', duration: 4 }),
+      makeTask({ id: 'b', startDate: '2026-06-08', endDate: '2026-06-09', duration: 1 }),
+    ];
+    const critical = criticalTaskIds(tasks, calendar);
+    expect(critical.has('a')).toBe(true);
+    expect(critical.has('b')).toBe(false);
+  });
+
+  it('クリティカルな子を持つ親も含める', () => {
+    const tasks = [
+      makeTask({ id: 'p', startDate: '2026-06-08', endDate: '2026-06-12', duration: 4 }),
+      makeTask({ id: 'a', parentId: 'p', startDate: '2026-06-08', endDate: '2026-06-12', duration: 4 }),
+    ];
+    const critical = criticalTaskIds(tasks, calendar);
+    expect(critical.has('a')).toBe(true);
+    expect(critical.has('p')).toBe(true);
+  });
+
+  it('空配列は空集合を返す', () => {
+    expect(criticalTaskIds([], calendar).size).toBe(0);
+  });
+
+  it('循環依存でも例外を投げない', () => {
+    const tasks = [
+      makeTask({ id: 'a', startDate: '2026-06-08', endDate: '2026-06-10', duration: 2, dependencies: ['b'] }),
+      makeTask({ id: 'b', startDate: '2026-06-08', endDate: '2026-06-10', duration: 2, dependencies: ['a'] }),
+    ];
+    expect(() => criticalTaskIds(tasks, calendar)).not.toThrow();
   });
 });

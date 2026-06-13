@@ -2,7 +2,7 @@ import { useMemo, useCallback, useState, useEffect, useRef } from 'react';
 import { useProject } from '../../store/ProjectContext';
 import { getVisibleTasks, checkCircularDependency } from '../../utils/taskTree';
 import { depRefs, depIds, toDepRef, formatDepRef } from '../../utils/deps';
-import { isDepViolated } from '../../utils/schedule';
+import { isDepViolated, criticalTaskIds } from '../../utils/schedule';
 import { darken } from '../../utils/color';
 import { toDate, fromDate, addWorkingDays, countWorkingDays } from '../../utils/calendar';
 import { addDays, differenceInCalendarDays } from 'date-fns';
@@ -36,8 +36,12 @@ interface GanttViewProps {
 }
 
 export function GanttView({ svgRef, wrapperRef, scrollRef, scrollToTodayRef }: GanttViewProps) {
-  const { project, dispatch, viewMode, selectedTaskIds } = useProject();
+  const { project, dispatch, viewMode, selectedTaskIds, showCriticalPath } = useProject();
   const visibleTasks = getVisibleTasks(project.tasks);
+  const criticalIds = useMemo(
+    () => (showCriticalPath ? criticalTaskIds(project.tasks, project.calendar) : new Set<string>()),
+    [showCriticalPath, project.tasks, project.calendar]
+  );
   const [isDragging, setIsDragging] = useState(false);
   const [linkingState, setLinkingState] = useState<{ fromTaskId: string; startX: number; startY: number; currentX: number; currentY: number } | null>(null);
   const [renderX, setRenderX] = useState(0);
@@ -671,6 +675,8 @@ export function GanttView({ svgRef, wrapperRef, scrollRef, scrollToTodayRef }: G
             }
 
             const hasChildren = project.tasks.some(t => t.parentId === task.id);
+            const isCritical = criticalIds.has(task.id);
+            const criticalStyle = isCritical ? { stroke: '#e11d48', strokeWidth: 2.5 } : {};
 
             if (task.isMilestone) {
               const cx = x1 + colWidth / 2;
@@ -692,6 +698,7 @@ export function GanttView({ svgRef, wrapperRef, scrollRef, scrollToTodayRef }: G
                     opacity: isDraggedOrMovingSelected ? 0.6 : 1,
                     fill: task.color ?? undefined,
                     stroke: task.color ? darken(task.color, 0.7) : undefined,
+                    ...criticalStyle,
                   }}
                   onMouseDown={(e) => handleMoveMouseDown(e, task.id, task.startDate, task.endDate, task.duration)}
                 />
@@ -717,6 +724,7 @@ export function GanttView({ svgRef, wrapperRef, scrollRef, scrollToTodayRef }: G
                      style={{
                        cursor: isDraggedOrMovingSelected ? 'grabbing' : 'grab',
                        opacity: isDraggedOrMovingSelected ? 0.6 : 1,
+                       ...criticalStyle,
                      }}
                      onMouseDown={(e) => handleMoveMouseDown(e, task.id, task.startDate, task.endDate, task.duration)}
                   />
@@ -751,6 +759,7 @@ export function GanttView({ svgRef, wrapperRef, scrollRef, scrollToTodayRef }: G
                     transition: isDraggedOrMovingSelected ? 'none' : 'opacity 0.1s',
                     fill: task.color ?? undefined,
                     stroke: task.color ? darken(task.color, 0.7) : undefined,
+                    ...criticalStyle,
                   }}
                   onMouseDown={(e) => handleMoveMouseDown(e, task.id, task.startDate, task.endDate, task.duration)}
                 />

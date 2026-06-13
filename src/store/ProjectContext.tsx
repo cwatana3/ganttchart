@@ -597,6 +597,8 @@ interface ProjectContextValue {
   setSelectedTaskId: (id: string | null) => void;
   viewMode: 'day' | 'week' | 'month';
   setViewMode: (mode: 'day' | 'week' | 'month') => void;
+  showCriticalPath: boolean;
+  setShowCriticalPath: React.Dispatch<React.SetStateAction<boolean>>;
   undo: () => void;
   canUndo: boolean;
   redo: () => void;
@@ -619,6 +621,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     setSelectedTaskIds(id ? [id] : []);
   }, []);
   const [viewMode, setViewMode] = useState<'day' | 'week' | 'month'>('day');
+  const [showCriticalPath, setShowCriticalPath] = useState(false);
   const [clipboard, setClipboard] = useState<ClipboardContent | null>(null);
   const loaded = useRef(false);
 
@@ -779,6 +782,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         setSelectedTaskId,
         viewMode,
         setViewMode,
+        showCriticalPath,
+        setShowCriticalPath,
         undo,
         canUndo,
         redo,
