@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import { useProject } from '../../store/ProjectContext';
 import { useTheme } from '../../store/ThemeContext';
-import { importFromJSON, exportToJSON, exportToSVG } from '../../utils/export';
+import { importFromJSON, exportToJSON, exportToSVG, exportToPNG, printGantt } from '../../utils/export';
 import { canIndent, canOutdent } from '../../utils/taskTree';
 import styles from './Toolbar.module.css';
 
@@ -89,6 +89,18 @@ export function Toolbar({ onOpenCalendar, onToday }: ToolbarProps) {
 
   const handleExportSVG = () => {
     exportToSVG(project, light, viewMode, showCriticalPath);
+  };
+
+  const handleExportPNG = async () => {
+    try {
+      await exportToPNG(project, light, viewMode, showCriticalPath);
+    } catch {
+      alert('PNGの書き出しに失敗しました');
+    }
+  };
+
+  const handlePrint = () => {
+    printGantt(project, light, viewMode, showCriticalPath);
   };
 
   const isIndentDisabled = !selectedTaskId || !canIndent(selectedTaskId, project.tasks);
@@ -217,6 +229,8 @@ export function Toolbar({ onOpenCalendar, onToday }: ToolbarProps) {
 
       <button className={styles.button} onClick={onOpenCalendar}>📅 カレンダー設定</button>
       <button className={styles.button} onClick={handleExportSVG}>🖼 SVG出力</button>
+      <button className={styles.button} onClick={handleExportPNG}>🏞 PNG出力</button>
+      <button className={styles.button} onClick={handlePrint}>🖨 印刷</button>
 
       <div className={styles.spacer} />
 

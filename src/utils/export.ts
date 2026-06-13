@@ -838,6 +838,76 @@ export function exportToSVG(project: Project, light: boolean, viewMode: 'day' | 
   downloadBlob(blob, `${project.name}.svg`);
 }
 
+function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('SVG画像の読み込みに失敗しました'));
+    img.src = url;
+  });
+}
+
+/** ガントを高解像度 PNG にラスタライズしてダウンロードする */
+export async function exportToPNG(
+  project: Project,
+  light: boolean,
+  viewMode: 'day' | 'week' | 'month' = 'day',
+  showCriticalPath = false,
+  scale = 2,
+): Promise<void> {
+  const svg = buildGanttSvg(project, light, viewMode, showCriticalPath);
+  const width = Number(svg.getAttribute('width')) || 800;
+  const height = Number(svg.getAttribute('height')) || 600;
+  const svgString = new XMLSerializer().serializeToString(svg);
+  const url = URL.createObjectURL(new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' }));
+
+  try {
+    const img = await loadImage(url);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(width * scale);
+    canvas.height = Math.round(height * scale);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas 2D コンテキストを取得できませんでした');
+    // 不透明背景を保証（SVG 先頭の背景 rect と同色）
+    ctx.fillStyle = light ? '#ffffff' : '#1e1e1e';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.scale(scale, scale);
+    ctx.drawImage(img, 0, 0);
+
+    const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
+    if (blob) downloadBlob(blob, `${project.name}.png`);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/** ガントを別ウィンドウで開いて印刷ダイアログを表示する */
+export function printGantt(
+  project: Project,
+  light: boolean,
+  viewMode: 'day' | 'week' | 'month' = 'day',
+  showCriticalPath = false,
+): void {
+  const svg = buildGanttSvg(project, light, viewMode, showCriticalPath);
+  const svgString = new XMLSerializer().serializeToString(svg);
+  const win = window.open('', '_blank');
+  if (!win) {
+    alert('印刷ウィンドウを開けませんでした。ポップアップを許可してください。');
+    return;
+  }
+  const bg = light ? '#ffffff' : '#1e1e1e';
+  win.document.write(
+    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${project.name}</title>` +
+    `<style>@page{margin:10mm;}html,body{margin:0;background:${bg};}svg{max-width:100%;height:auto;display:block;}</style>` +
+    `</head><body>${svgString}</body></html>`
+  );
+  win.document.close();
+  win.focus();
+  setTimeout(() => {
+    try { win.print(); } catch { /* ユーザーが手動で印刷 */ }
+  }, 300);
+}
+
 function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
