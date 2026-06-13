@@ -1,9 +1,11 @@
 import type { Project } from '../types';
+import type { SnapshotEntry } from './snapshots';
 
 const DB_NAME = 'gannt-db';
 const STORE = 'projects';
 const REGISTRY_KEY = '__registry__';
 const LEGACY_KEY = 'gannt-project';
+const SNAPSHOT_PREFIX = '__snapshots__:';
 
 export interface ProjectMeta {
   id: string;
@@ -94,6 +96,33 @@ export async function deleteLegacyProject(): Promise<void> {
   try {
     const db = await getDB();
     await db.delete(STORE, LEGACY_KEY);
+    db.close();
+  } catch {
+    /* noop */
+  }
+}
+
+export async function loadSnapshots(projectId: string): Promise<SnapshotEntry[]> {
+  try {
+    const db = await getDB();
+    const snaps = await db.get(STORE, SNAPSHOT_PREFIX + projectId);
+    db.close();
+    return (snaps as SnapshotEntry[]) ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveSnapshots(projectId: string, snaps: SnapshotEntry[]): Promise<void> {
+  const db = await getDB();
+  await db.put(STORE, snaps, SNAPSHOT_PREFIX + projectId);
+  db.close();
+}
+
+export async function deleteSnapshots(projectId: string): Promise<void> {
+  try {
+    const db = await getDB();
+    await db.delete(STORE, SNAPSHOT_PREFIX + projectId);
     db.close();
   } catch {
     /* noop */

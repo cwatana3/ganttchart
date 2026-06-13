@@ -9,10 +9,11 @@ import styles from './Toolbar.module.css';
 interface ToolbarProps {
   onOpenCalendar: () => void;
   onOpenExport: () => void;
+  onOpenBackup: () => void;
   onToday?: () => void;
 }
 
-export function Toolbar({ onOpenCalendar, onOpenExport, onToday }: ToolbarProps) {
+export function Toolbar({ onOpenCalendar, onOpenExport, onOpenBackup, onToday }: ToolbarProps) {
   const {
     project,
     dispatch,
@@ -306,6 +307,7 @@ export function Toolbar({ onOpenCalendar, onOpenExport, onToday }: ToolbarProps)
       <button className={styles.button} onClick={onOpenExport}>📤 エクスポート…</button>
       <button className={styles.button} onClick={handleExportCSV}>📊 CSV出力</button>
       <button className={styles.button} onClick={handleImportCSVClick}>📥 CSV取込</button>
+      <button className={styles.button} onClick={onOpenBackup} title="自動バックアップから復元">🕑 履歴</button>
 
       <div className={styles.spacer} />
 

@@ -21,7 +21,11 @@ import {
   deleteProjectById,
   loadLegacyProject,
   deleteLegacyProject,
+  loadSnapshots,
+  saveSnapshots,
+  deleteSnapshots,
 } from '../utils/projectStore';
+import { pushSnapshot } from '../utils/snapshots';
 import { addDays } from 'date-fns';
 
 function generateId(): string {
@@ -791,6 +795,10 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         void saveRegistry({ activeId: activeProjectId, projects: next });
         return next;
       });
+      // 10分バケットのスナップショットを更新（最大20世代）
+      void loadSnapshots(activeProjectId).then(snaps => {
+        saveSnapshots(activeProjectId, pushSnapshot(snaps, project, Date.now()));
+      });
     }, 500);
     return () => clearTimeout(timer);
   }, [project, activeProjectId]);
@@ -842,6 +850,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     }
     const next = list.filter(p => p.id !== id);
     void deleteProjectById(id);
+    void deleteSnapshots(id);
     let activeId = activeIdRef.current;
     if (id === activeId) {
       activeId = next[0].id;
