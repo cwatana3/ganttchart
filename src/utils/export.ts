@@ -966,6 +966,39 @@ const MM_TO_PX = 96 / 25.4; // CSS の 1px = 1/96in
 // 端で2ページ目に溢れないための安全マージン
 const FIT_SAFETY = 0.985;
 
+export interface PrintFit {
+  /** 採用する用紙の向き */
+  landscape: boolean;
+  /** SVG に適用する縮小率（1 = 等倍。拡大はしない） */
+  scale: number;
+}
+
+/**
+ * 印刷時の用紙の向きと縮小率を決める純粋関数。
+ * - orientation=auto: 縮小が少なくて済む（＝大きく印刷できる）向きを採用
+ * - fitToPage=true: 印刷可能領域（用紙 − マージン）に収まる縮小率（拡大はしない）
+ */
+export function computePrintFit(svgW: number, svgH: number, options?: PrintOptions): PrintFit {
+  const fitToPage = options?.fitToPage ?? true;
+  const paper = options?.paper ?? 'A4';
+  const orientationOpt = options?.orientation ?? 'auto';
+  const { w: paperW, h: paperH } = PAPER_MM[paper];
+
+  // 指定向きで1ページに収めるための縮小率
+  const fitScale = (landscape: boolean): number => {
+    const availW = ((landscape ? paperH : paperW) - 2 * PRINT_MARGIN_MM) * MM_TO_PX;
+    const availH = ((landscape ? paperW : paperH) - 2 * PRINT_MARGIN_MM) * MM_TO_PX;
+    return Math.min(availW / svgW, availH / svgH);
+  };
+
+  const landscape = orientationOpt === 'auto'
+    ? fitScale(true) >= fitScale(false)
+    : orientationOpt === 'landscape';
+
+  const scale = fitToPage ? Math.min(1, fitScale(landscape) * FIT_SAFETY) : 1;
+  return { landscape, scale };
+}
+
 /** ガントを別ウィンドウで開いて印刷ダイアログを表示する */
 export function printGantt(
   project: Project,
@@ -984,37 +1017,7 @@ export function printGantt(
 
   const fitToPage = options?.fitToPage ?? true;
   const paper = options?.paper ?? 'A4';
-  const orientationOpt = options?.orientation ?? 'auto';
-  const { w: paperW, h: paperH } = PAPER_MM[paper];
-
-  // 指定向きの印刷可能領域（px）
-  const printablePx = (landscape: boolean) => {
-    const pw = landscape ? paperH : paperW;
-    const ph = landscape ? paperW : paperH;
-    return {
-      w: (pw - 2 * PRINT_MARGIN_MM) * MM_TO_PX,
-      h: (ph - 2 * PRINT_MARGIN_MM) * MM_TO_PX,
-    };
-  };
-  // その向きで1ページに収めるための縮小率（拡大はしない）
-  const fitScale = (landscape: boolean) => {
-    const a = printablePx(landscape);
-    return Math.min(a.w / svgW, a.h / svgH);
-  };
-
-  let landscape: boolean;
-  let scale = 1;
-
-  if (orientationOpt === 'auto') {
-    // 縮小が少なくて済む（＝大きく印刷できる）向きを採用
-    landscape = fitScale(true) >= fitScale(false);
-  } else {
-    landscape = orientationOpt === 'landscape';
-  }
-
-  if (fitToPage) {
-    scale = Math.min(1, fitScale(landscape) * FIT_SAFETY);
-  }
+  const { landscape, scale } = computePrintFit(svgW, svgH, options);
 
   const svgString = new XMLSerializer().serializeToString(svg);
   const bg = light ? '#ffffff' : '#1e1e1e';

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll } from 'vitest';
-import { validateProject, buildGanttSvg } from './export';
+import { validateProject, buildGanttSvg, computePrintFit } from './export';
 import type { Project, Task } from '../types';
 import { format, addDays } from 'date-fns';
 
@@ -238,5 +238,62 @@ describe('buildGanttSvg', () => {
     const full = buildGanttSvg(project, false, 'day');
     const ranged = buildGanttSvg(project, false, 'day', false, { start: '2026-06-10', end: '2026-06-20' });
     expect(Number(ranged.getAttribute('width'))).toBeLessThan(Number(full.getAttribute('width')));
+  });
+});
+
+describe('computePrintFit', () => {
+  // A4 印刷可能領域（mm→px, 10mm マージン）: 横 ≈ 1047×718, 縦 ≈ 718×1047
+  const A4_LANDSCAPE_W = (297 - 20) * (96 / 25.4); // ≈ 1047
+
+  it('小さい図は拡大せず等倍のまま（scale=1）', () => {
+    const { scale } = computePrintFit(200, 150, { paper: 'A4', orientation: 'landscape' });
+    expect(scale).toBe(1);
+  });
+
+  it('大きい図は1ページに収まるよう縮小される（scale<1）', () => {
+    const { scale } = computePrintFit(5000, 3000, { paper: 'A4', orientation: 'landscape' });
+    expect(scale).toBeLessThan(1);
+    expect(scale).toBeGreaterThan(0);
+    // 縮小後の幅は印刷可能領域に収まる
+    expect(5000 * scale).toBeLessThanOrEqual(A4_LANDSCAPE_W);
+  });
+
+  it('縮小率は決して1を超えない', () => {
+    const { scale } = computePrintFit(10, 10, { paper: 'A3' });
+    expect(scale).toBeLessThanOrEqual(1);
+  });
+
+  it('orientation=auto: 横長の図には横向きを選ぶ', () => {
+    const { landscape } = computePrintFit(4000, 1000, { orientation: 'auto' });
+    expect(landscape).toBe(true);
+  });
+
+  it('orientation=auto: 縦長の図には縦向きを選ぶ', () => {
+    const { landscape } = computePrintFit(1000, 4000, { orientation: 'auto' });
+    expect(landscape).toBe(false);
+  });
+
+  it('orientation を明示すると auto 判定より優先される', () => {
+    // 横長の図でも portrait 指定なら縦向き
+    const { landscape } = computePrintFit(4000, 1000, { orientation: 'portrait' });
+    expect(landscape).toBe(false);
+  });
+
+  it('fitToPage=false なら縮小せず等倍（向きだけ決定）', () => {
+    const { scale, landscape } = computePrintFit(5000, 3000, { fitToPage: false, orientation: 'auto' });
+    expect(scale).toBe(1);
+    expect(landscape).toBe(true);
+  });
+
+  it('A3 は A4 より縮小が緩い（より大きく印刷できる）', () => {
+    const a4 = computePrintFit(5000, 3000, { paper: 'A4', orientation: 'landscape' }).scale;
+    const a3 = computePrintFit(5000, 3000, { paper: 'A3', orientation: 'landscape' }).scale;
+    expect(a3).toBeGreaterThan(a4);
+  });
+
+  it('既定は fitToPage=true / A4 / auto', () => {
+    const fit = computePrintFit(5000, 3000);
+    expect(fit.landscape).toBe(true); // 横長なので auto で横向き
+    expect(fit.scale).toBeLessThan(1); // 大きいので縮小
   });
 });
