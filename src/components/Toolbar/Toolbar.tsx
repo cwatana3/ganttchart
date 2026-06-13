@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { useProject } from '../../store/ProjectContext';
 import { useTheme } from '../../store/ThemeContext';
 import { importFromJSON, exportToJSON, exportToSVG, exportToPNG, printGantt } from '../../utils/export';
+import { exportTasksToCSV, parseTasksFromCSV } from '../../utils/csv';
 import { canIndent, canOutdent } from '../../utils/taskTree';
 import styles from './Toolbar.module.css';
 
@@ -35,6 +36,7 @@ export function Toolbar({ onOpenCalendar, onToday }: ToolbarProps) {
   } = useProject();
   const { light, toggle: toggleTheme } = useTheme();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const csvInputRef = useRef<HTMLInputElement>(null);
 
   const handleNew = () => {
     if (confirm('現在のプロジェクトを破棄して新規作成しますか？')) {
@@ -101,6 +103,41 @@ export function Toolbar({ onOpenCalendar, onToday }: ToolbarProps) {
 
   const handlePrint = () => {
     printGantt(project, light, viewMode, showCriticalPath);
+  };
+
+  const handleExportCSV = () => {
+    const csv = exportTasksToCSV(project);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${project.name}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportCSVClick = () => {
+    csvInputRef.current?.click();
+  };
+
+  const handleCSVFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const tasks = parseTasksFromCSV(text);
+      if (tasks.length === 0) {
+        alert('CSVから読み込めるタスクがありませんでした');
+      } else if (confirm(`現在のタスクを ${tasks.length} 件のCSVタスクで置き換えますか？（カレンダー設定は維持されます）`)) {
+        dispatch({ type: 'LOAD_PROJECT', project: { ...project, tasks } });
+        setSelectedTaskId(null);
+      }
+    } catch {
+      alert('CSVの読み込みに失敗しました');
+    }
+    e.target.value = '';
   };
 
   const isIndentDisabled = !selectedTaskId || !canIndent(selectedTaskId, project.tasks);
@@ -231,6 +268,8 @@ export function Toolbar({ onOpenCalendar, onToday }: ToolbarProps) {
       <button className={styles.button} onClick={handleExportSVG}>🖼 SVG出力</button>
       <button className={styles.button} onClick={handleExportPNG}>🏞 PNG出力</button>
       <button className={styles.button} onClick={handlePrint}>🖨 印刷</button>
+      <button className={styles.button} onClick={handleExportCSV}>📊 CSV出力</button>
+      <button className={styles.button} onClick={handleImportCSVClick}>📥 CSV取込</button>
 
       <div className={styles.spacer} />
 
@@ -268,6 +307,13 @@ export function Toolbar({ onOpenCalendar, onToday }: ToolbarProps) {
         accept=".json"
         style={{ display: 'none' }}
         onChange={handleFileChange}
+      />
+      <input
+        ref={csvInputRef}
+        type="file"
+        accept=".csv"
+        style={{ display: 'none' }}
+        onChange={handleCSVFileChange}
       />
     </div>
   );
