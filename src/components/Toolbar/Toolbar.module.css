@@ -2,7 +2,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 14px;
+  padding: 8px 8px;
   background: var(--toolbar-bg);
   border-bottom: 1px solid var(--border-color);
   backdrop-filter: blur(20px) saturate(180%);
@@ -19,10 +19,11 @@
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 3px;
+  padding: 2px;
   background: var(--hover-bg);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
+  height: 36px;
 }
 
 /* フラットなアイコンボタン */
@@ -30,8 +31,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -77,6 +78,8 @@
 
 /* スタンドアロンのアイコンボタン（グループ外：今日・テーマ）は枠を付ける */
 .toolbar > .iconBtn {
+  width: 36px;
+  height: 36px;
   border: 1px solid var(--border-color);
   background: var(--bg-color);
   box-shadow: var(--shadow-sm);
@@ -89,7 +92,7 @@
 
 /* プロジェクト選択 */
 .projectSelect {
-  height: 32px;
+  height: 30px;
   padding: 0 10px;
   border: none;
   border-radius: var(--radius-sm);
@@ -112,15 +115,16 @@
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 3px;
+  padding: 2px;
   background: var(--hover-bg);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
+  height: 36px;
 }
 
 .segBtn {
   min-width: 34px;
-  height: 26px;
+  height: 30px;
   border: none;
   background: transparent;
   color: var(--text-muted);
@@ -154,7 +158,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 32px;
+  height: 36px;
   padding: 0 10px;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);

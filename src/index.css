@@ -16,7 +16,9 @@
   --input-bg: #0f172a;
   --milestone-color: #fbbf24;
   --weekend-bg: rgba(255, 255, 255, 0.015);
-  
+  --today-bg: rgba(244, 114, 182, 0.10);
+  --progress-fill: #1e1b4b;
+
   /* Task gradients */
   --task-bar-start: #8b5cf6;
   --task-bar-end: #6366f1;
@@ -63,6 +65,8 @@
   --input-bg: #ffffff;
   --milestone-color: #d97706;
   --weekend-bg: rgba(0, 0, 0, 0.015);
+  --today-bg: rgba(244, 114, 182, 0.12);
+  --progress-fill: #172554;
   
   /* Task gradients */
   --task-bar-start: #818cf8;

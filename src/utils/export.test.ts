@@ -137,10 +137,10 @@ describe('buildGanttSvg', () => {
     ]);
   }
 
-  it('renders all ten table column headers', () => {
+  it('renders all nine table column headers', () => {
     const svg = buildGanttSvg(sampleProject(), false);
     const texts = Array.from(svg.querySelectorAll('text')).map(t => t.textContent);
-    for (const label of ['#', 'WBS', 'タスク名', '期間', '開始日', '終了日', '進捗', '担当者', '先行', 'メモ']) {
+    for (const label of ['＃', 'タスク名', '期間', '開始日', '終了日', '進捗', '担当者', '先行', 'メモ']) {
       expect(texts).toContain(label);
     }
   });
@@ -154,10 +154,10 @@ describe('buildGanttSvg', () => {
     expect(svg.querySelectorAll('polyline[marker-end]')).toHaveLength(2);
   });
 
-  it('shows predecessor row numbers in the 先行 column', () => {
+  it('shows predecessor WBS codes in the 先行 column', () => {
     const svg = buildGanttSvg(sampleProject(), false);
     const texts = Array.from(svg.querySelectorAll('text')).map(t => t.textContent);
-    expect(texts).toContain('2, 4');
+    expect(texts).toContain('1.1, 2');
   });
 
   it('omits children of a collapsed parent', () => {

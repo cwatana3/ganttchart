@@ -1,6 +1,25 @@
 import { useState, useCallback, useRef, useEffect, type ReactNode } from 'react';
 import styles from './SplitPane.module.css';
 
+const STORAGE_KEY = 'gannt-split-width';
+
+function loadLeftWidth(defaultValue: number): number {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      const parsed = parseInt(saved, 10);
+      if (!isNaN(parsed) && parsed > 0) return parsed;
+    }
+  } catch {}
+  return defaultValue;
+}
+
+function saveLeftWidth(width: number): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, String(width));
+  } catch {}
+}
+
 interface SplitPaneProps {
   left: ReactNode;
   right: ReactNode;
@@ -16,8 +35,12 @@ export function SplitPane({
   minLeftWidth = 200,
   scrollRef,
 }: SplitPaneProps) {
-  const [leftWidth, setLeftWidth] = useState(defaultLeftWidth);
+  const [leftWidth, setLeftWidth] = useState(() => loadLeftWidth(defaultLeftWidth));
   const dragging = useRef(false);
+
+  useEffect(() => {
+    saveLeftWidth(leftWidth);
+  }, [leftWidth]);
   const containerRef = useRef<HTMLDivElement>(null);
   const leftRef = useRef<HTMLDivElement>(null);
   const rightRef = useRef<HTMLDivElement>(null);

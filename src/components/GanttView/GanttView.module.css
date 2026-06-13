@@ -37,6 +37,11 @@
   fill: var(--weekend-bg);
 }
 
+.todayBg {
+  fill: var(--today-bg);
+  pointer-events: none;
+}
+
 .gridLine {
   stroke: var(--border-color);
   stroke-width: 1px;

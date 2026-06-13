@@ -9,7 +9,7 @@ import {
   canIndent,
   canOutdent,
 } from '../utils/taskTree';
-import { addWorkingDays, fromDate, toDate, countWorkingDays } from '../utils/calendar';
+import { addWorkingDays, fromDate, toDate, countWorkingDays, snapToWorkingDay } from '../utils/calendar';
 import { scheduleProject } from '../utils/schedule';
 import {
   type ProjectMeta,
@@ -196,10 +196,14 @@ function rawProjectReducer(state: Project, action: ProjectAction): Project {
       const idsSet = new Set(action.ids);
       const tasks = state.tasks.map(t => {
         if (!idsSet.has(t.id)) return t;
-        const start = toDate(t.startDate);
-        const end = toDate(t.endDate);
-        const newStart = fromDate(addDays(start, action.dayOffset));
-        const newEnd = fromDate(addDays(end, action.dayOffset));
+        // カレンダー日でずらした後、開始日を稼働日にスナップし、
+        // 終了日は duration（稼働日数）から再計算する。
+        // これにより土日に乗ったまま期間表示がずれることを防ぐ。
+        const shiftedStart = fromDate(addDays(toDate(t.startDate), action.dayOffset));
+        const newStart = snapToWorkingDay(shiftedStart, state.calendar);
+        const newEnd = t.isMilestone
+          ? newStart
+          : addWorkingDays(newStart, t.duration, state.calendar);
         return {
           ...t,
           startDate: newStart,

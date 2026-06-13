@@ -18,6 +18,23 @@ export function isWorkingDay(dateStr: string, calendar: Calendar): boolean {
 }
 
 /**
+ * dateStr が稼働日でなければ、最も近い稼働日にスナップする。
+ * 前後で距離が等しい場合は未来側（後ろ）を優先する。
+ * 稼働日が一つも見つからない場合（異常なカレンダー）は元の日付を返す。
+ */
+export function snapToWorkingDay(dateStr: string, calendar: Calendar): string {
+  if (isWorkingDay(dateStr, calendar)) return dateStr;
+  const base = toDate(dateStr);
+  for (let delta = 1; delta <= 14; delta++) {
+    const forward = fromDate(addDays(base, delta));
+    if (isWorkingDay(forward, calendar)) return forward;
+    const backward = fromDate(addDays(base, -delta));
+    if (isWorkingDay(backward, calendar)) return backward;
+  }
+  return dateStr;
+}
+
+/**
  * startDate から duration 稼働日だけ進めた日付を返す。
  * startDate 自体はカウントに含めない。
  * duration = 0 の場合は startDate をそのまま返す。

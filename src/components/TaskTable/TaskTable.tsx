@@ -22,8 +22,7 @@ export interface ColWidths {
 }
 
 const COLUMNS: { key: keyof ColWidths; label: string }[] = [
-  { key: 'rowNum', label: '#' },
-  { key: 'wbs', label: 'WBS' },
+  { key: 'wbs', label: '＃' },
   { key: 'name', label: 'タスク名' },
   { key: 'duration', label: '期間' },
   { key: 'startDate', label: '開始日' },
@@ -81,10 +80,6 @@ export function TaskTable() {
   const tableRef = useRef<HTMLTableElement>(null);
   const visibleTasks = getFilteredVisibleTasks(project.tasks, filterText);
 
-  const rowNumMap = useMemo(
-    () => new Map(project.tasks.map((t, i) => [t.id, i + 1])),
-    [project.tasks],
-  );
   const wbsMap = useMemo(() => getWbsMap(project.tasks), [project.tasks]);
 
   const effectiveColWidths = useMemo((): ColWidths => {
@@ -94,14 +89,14 @@ export function TaskTable() {
     // 1. Row number column
     let autoRowNum = headerW('#');
     autoRowNum = Math.max(autoRowNum, bodyW(String(project.tasks.length)));
-    autoRowNum = Math.max(36, autoRowNum + 24);
+    autoRowNum = Math.max(48, autoRowNum + 24 + 6);
 
     // 2. WBS column
     let autoWbs = headerW('WBS');
     for (const task of visibleTasks) {
       autoWbs = Math.max(autoWbs, bodyW(wbsMap.get(task.id) ?? ''));
     }
-    autoWbs = Math.max(44, autoWbs + 24);
+    autoWbs = Math.max(60, autoWbs + 24 + 6);
 
     // 3. Name column (indent + toggle + milestone icon aware)
     let autoName = headerW('タスク名');
@@ -142,7 +137,7 @@ export function TaskTable() {
     // 7. Progress column
     let autoProgress = headerW('進捗');
     autoProgress = Math.max(autoProgress, bodyW('100%'));
-    autoProgress = Math.max(56, autoProgress + 24);
+    autoProgress = Math.max(64, autoProgress + 24 + 6);
 
     // 8. Assignee column
     let autoAssignee = headerW('担当者');
@@ -154,7 +149,7 @@ export function TaskTable() {
     // 9. Predecessor column
     let autoDeps = headerW('先行');
     for (const task of visibleTasks) {
-      const text = formatDeps(task, project.tasks);
+      const text = formatDeps(task, project.tasks, wbsMap);
       if (text) {
         autoDeps = Math.max(autoDeps, bodyW(text));
       }
@@ -334,6 +329,10 @@ export function TaskTable() {
               <span
                 className={styles.resizeHandle}
                 onMouseDown={(e) => startResize(col.key, e)}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  resetColumnWidth(col.key);
+                }}
               />
             </th>
           ))}
@@ -349,8 +348,8 @@ export function TaskTable() {
             <TaskRow
               key={task.id}
               task={task}
-              rowNumber={rowNumMap.get(task.id) ?? 0}
               wbs={wbsMap.get(task.id) ?? ''}
+              wbsMap={wbsMap}
               isSelected={selectedTaskIds.includes(task.id)}
               isDragged={draggedIds.includes(task.id)}
               showDropBefore={showDropBefore}

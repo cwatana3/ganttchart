@@ -2,7 +2,7 @@ import type { Project, Task } from '../types';
 import { getFlattenedTasks, getWbsMap } from './taskTree';
 import { formatDeps, parseDepsInput, toStorage } from './deps';
 
-const HEADERS = ['行番号', 'WBS', 'タスク名', '期間', '開始日', '終了日', '進捗', '担当者', '先行', 'メモ'] as const;
+const HEADERS = ['＃', 'タスク名', '期間', '開始日', '終了日', '進捗', '担当者', '先行', 'メモ'] as const;
 
 function escapeCell(value: string): string {
   if (/[",\r\n]/.test(value)) {
@@ -18,13 +18,10 @@ function escapeCell(value: string): string {
 export function exportTasksToCSV(project: Project): string {
   const ordered = getFlattenedTasks(project.tasks);
   const wbsMap = getWbsMap(project.tasks);
-  // 行番号と依存解決は project.tasks の並び順（formatDeps と一致）に合わせる
-  const rowNumMap = new Map(project.tasks.map((t, i) => [t.id, i + 1]));
 
   const lines = [HEADERS.join(',')];
   for (const task of ordered) {
     const cells = [
-      String(rowNumMap.get(task.id) ?? ''),
       wbsMap.get(task.id) ?? '',
       task.name,
       String(task.duration),
@@ -32,7 +29,7 @@ export function exportTasksToCSV(project: Project): string {
       task.endDate,
       String(task.progress),
       task.assignee ?? '',
-      formatDeps(task, project.tasks),
+      formatDeps(task, project.tasks, wbsMap),
       task.notes ?? '',
     ];
     lines.push(cells.map(c => escapeCell(c)).join(','));
@@ -118,28 +115,42 @@ export function parseTasksFromCSV(text: string): Task[] {
 
   // ヘッダー行を検出して読み飛ばす
   const first = rows[0];
-  const hasHeader = first[2]?.trim() === 'タスク名' || first[0]?.trim() === '行番号';
+  const hasHeader =
+    first[0]?.trim() === '行番号' ||
+    first[0]?.trim() === 'WBS' ||
+    first[0]?.trim() === '＃' ||
+    first[0]?.trim() === '#' ||
+    first[1]?.trim() === 'タスク名' ||
+    first[2]?.trim() === 'タスク名';
   const dataRows = hasHeader ? rows.slice(1) : rows;
   if (dataRows.length === 0) return [];
+
+  // 列のインデックスをヘッダーに基づいてマッピング、またはデフォルトで判断
+  let isOldFormat = true;
+  if (hasHeader) {
+    isOldFormat = first[0]?.trim() === '行番号';
+  } else {
+    isOldFormat = first.length >= 10;
+  }
+
+  const offset = isOldFormat ? 1 : 0;
 
   // 1パス目: タスク生成（id 割当）と wbs→id マップ
   const tasks: Task[] = [];
   const wbsToId = new Map<string, string>();
-  const rowToId: string[] = [];
 
   for (const r of dataRows) {
-    const wbs = (r[1] ?? '').trim();
-    const name = (r[2] ?? '').trim() || '無題タスク';
-    const duration = Math.max(0, Math.round(Number(r[3]) || 0));
-    const startDate = (r[4] ?? '').trim();
-    const endDate = (r[5] ?? '').trim() || startDate;
-    const progress = Math.max(0, Math.min(100, Math.round(Number(r[6]) || 0)));
-    const assignee = (r[7] ?? '').trim();
-    const notes = (r[9] ?? '').trim();
+    const wbs = (r[offset + 0] ?? '').trim();
+    const name = (r[offset + 1] ?? '').trim() || '無題タスク';
+    const duration = Math.max(0, Math.round(Number(r[offset + 2]) || 0));
+    const startDate = (r[offset + 3] ?? '').trim();
+    const endDate = (r[offset + 4] ?? '').trim() || startDate;
+    const progress = Math.max(0, Math.min(100, Math.round(Number(r[offset + 5]) || 0)));
+    const assignee = (r[offset + 6] ?? '').trim();
+    const notes = (r[offset + 8] ?? '').trim();
 
     const id = generateId();
     if (wbs) wbsToId.set(wbs, id);
-    rowToId.push(id);
 
     tasks.push({
       id,
@@ -156,23 +167,30 @@ export function parseTasksFromCSV(text: string): Task[] {
     });
   }
 
-  // 2パス目: WBS から親、先行列から依存を復元
+  // 2パス目: WBS から親を決定する
   dataRows.forEach((r, i) => {
     const task = tasks[i];
-    const wbs = (r[1] ?? '').trim();
+    const wbs = (r[offset + 0] ?? '').trim();
     if (wbs) {
       const pWbs = parentWbs(wbs);
       if (pWbs && wbsToId.has(pWbs)) {
         task.parentId = wbsToId.get(pWbs)!;
       }
     }
+  });
 
-    const depStr = (r[8] ?? '').trim();
+  // WBSから親を設定した後、改めて WBS マップを再構築する（これで正しい親子階層関係に基づいたWBSが得られる）
+  const wbsMap = getWbsMap(tasks);
+
+  // 3パス目: 先行列から依存を復元
+  dataRows.forEach((r, i) => {
+    const task = tasks[i];
+    const depStr = (r[offset + 7] ?? '').trim();
     if (depStr) {
-      const { tokens } = parseDepsInput(depStr, rowToId.length);
+      const { tokens } = parseDepsInput(depStr, tasks, wbsMap);
       const deps = tokens
-        .filter(tok => tok.row - 1 !== i) // 自己参照を除外
-        .map(tok => toStorage({ id: rowToId[tok.row - 1], type: tok.type, lag: tok.lag }));
+        .filter(tok => tok.id !== task.id) // 自己参照を除外
+        .map(tok => toStorage({ id: tok.id, type: tok.type, lag: tok.lag }));
       if (deps.length > 0) task.dependencies = deps;
     }
   });

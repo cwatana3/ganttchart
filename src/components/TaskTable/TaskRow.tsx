@@ -8,8 +8,8 @@ import styles from './TaskTable.module.css';
 
 interface TaskRowProps {
   task: Task;
-  rowNumber: number;
   wbs: string;
+  wbsMap: Map<string, string>;
   isSelected: boolean;
   isDragged: boolean;
   showDropBefore: boolean;
@@ -26,8 +26,8 @@ interface TaskRowProps {
 
 export const TaskRow = memo(function TaskRow({
   task,
-  rowNumber,
   wbs,
+  wbsMap,
   isSelected,
   isDragged,
   showDropBefore,
@@ -80,17 +80,18 @@ export const TaskRow = memo(function TaskRow({
         changes.notes = editValue;
         break;
       case 'dependencies': {
-        const { tokens, invalid } = parseDepsInput(editValue, project.tasks.length);
+        const { tokens, invalid } = parseDepsInput(editValue, project.tasks, wbsMap);
         const invalidDeps: string[] = [...invalid];
         const validDeps: TaskDependency[] = [];
         for (const tok of tokens) {
-          const depTask = project.tasks[tok.row - 1];
+          const depTask = project.tasks.find(t => t.id === tok.id);
           if (!depTask || depTask.id === task.id ||
               checkCircularDependency(task.id, depTask.id, project.tasks)) {
-            invalidDeps.push(String(tok.row));
+            const wbsStr = wbsMap.get(tok.id) || tok.id;
+            invalidDeps.push(wbsStr);
             continue;
           }
-          validDeps.push(toStorage({ id: depTask.id, type: tok.type, lag: tok.lag }));
+          validDeps.push(toStorage({ id: tok.id, type: tok.type, lag: tok.lag }));
         }
         if (invalidDeps.length > 0) {
           alert(`先行タスクの指定「${invalidDeps.join(', ')}」は無効です（書式誤り・自己参照・循環依存のいずれか）。\n書式例: 3 / 3SS / 3FS+2 / 3-1`);
@@ -177,9 +178,6 @@ export const TaskRow = memo(function TaskRow({
       onDragEnd={onDragEnd}
       onDragLeave={onDragLeave}
     >
-      <td className={styles.cell} style={{ ...colStyle('rowNum'), ...mutedStyle }}>
-        {rowNumber}
-      </td>
       <td className={styles.cell} style={{ ...colStyle('wbs'), ...mutedStyle }}>
         {wbs}
       </td>
@@ -212,7 +210,7 @@ export const TaskRow = memo(function TaskRow({
         {renderCell('assignee', task.assignee || '', task.assignee || '-')}
       </td>
       {(() => {
-        const depsValue = formatDeps(task, project.tasks);
+        const depsValue = formatDeps(task, project.tasks, wbsMap);
         return (
           <td className={styles.cell} style={colStyle('dependencies')}>
             {renderCell('dependencies', depsValue, depsValue || '-')}

@@ -27,6 +27,7 @@ const DARK = {
   taskBar: '#1d4ed8',
   taskBarStart: '#3b82f6',
   taskBarStroke: '#1e40af',
+  progressFill: '#1e1b4b',
   summaryBar: '#374151',
   summaryBarStart: '#4b5563',
   summaryBarStroke: '#1f2937',
@@ -49,6 +50,7 @@ const LIGHT = {
   taskBar: '#2563eb',
   taskBarStart: '#60a5fa',
   taskBarStroke: '#1d4ed8',
+  progressFill: '#172554',
   summaryBar: '#6b7280',
   summaryBarStart: '#9ca3af',
   summaryBarStroke: '#4b5563',
@@ -71,6 +73,7 @@ interface Colors {
   taskBar: string;
   taskBarStart: string;
   taskBarStroke: string;
+  progressFill: string;
   summaryBar: string;
   summaryBarStart: string;
   summaryBarStroke: string;
@@ -160,9 +163,9 @@ function textWidth(s: string, fontSize: number): number {
 }
 
 function truncate(s: string, maxPx: number, fontSize: number): string {
-  if (textWidth(s, fontSize) <= maxPx) return s;
+  if (textWidth(s, fontSize) <= maxPx + 0.01) return s;
   let t = s;
-  while (t.length > 1 && textWidth(t + '…', fontSize) > maxPx) {
+  while (t.length > 1 && textWidth(t + '…', fontSize) > maxPx + 0.01) {
     t = t.slice(0, -1);
   }
   return t + '…';
@@ -181,13 +184,7 @@ function getColSpecs(C: Colors, tasks: Task[]): { specs: ColSpec[]; colColor: st
   return {
     specs: [
       {
-        key: 'rowNum', label: '#',
-        getValue: (t) => String(tasks.findIndex(x => x.id === t.id) + 1),
-        fontSize: 12,
-        color: C.textMuted,
-      },
-      {
-        key: 'wbs', label: 'WBS',
+        key: 'wbs', label: '＃',
         getValue: (t) => wbsMap.get(t.id) ?? '',
         fontSize: 12,
         color: C.textMuted,
@@ -224,7 +221,7 @@ function getColSpecs(C: Colors, tasks: Task[]): { specs: ColSpec[]; colColor: st
       },
       {
         key: 'dependencies', label: '先行',
-        getValue: (t) => formatDeps(t, tasks) || '-',
+        getValue: (t) => formatDeps(t, tasks, wbsMap) || '-',
         fontSize: 12,
       },
       {
@@ -842,7 +839,7 @@ export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' 
       // Progress fill (solid color blend — no transparency allowed in export)
       const prog = Math.max(0, Math.min(100, task.progress ?? 0));
       if (prog > 0) {
-        const doneColor = darken(task.color ?? C.taskBar, 0.72);
+        const doneColor = task.color ? darken(task.color, 0.72) : C.progressFill;
         chart.appendChild(rectEl(x1, barY, w * prog / 100, BAR_H, doneColor, undefined, 3));
       }
     }

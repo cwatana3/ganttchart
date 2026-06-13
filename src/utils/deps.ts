@@ -18,8 +18,15 @@ export function toStorage(ref: DependencyRef): TaskDependency {
   return ref.type === 'FS' && ref.lag === 0 ? ref.id : ref;
 }
 
-/** 「3」「3SS」「3FS+2」「3-1」形式。行番号は tasks 配列の 1 始まり */
-export function formatDepRef(ref: DependencyRef, tasks: Task[]): string {
+/** 「3」「3SS」「3FS+2」「3-1」または「1.1」「1.1SS」などの形式。 */
+export function formatDepRef(ref: DependencyRef, tasks: Task[], wbsMap?: Map<string, string>): string {
+  const wbs = wbsMap?.get(ref.id);
+  if (wbs) {
+    let s = wbs;
+    if (ref.type !== 'FS') s += ref.type;
+    if (ref.lag !== 0) s += ref.lag > 0 ? `+${ref.lag}` : String(ref.lag);
+    return s;
+  }
   const idx = tasks.findIndex(t => t.id === ref.id);
   if (idx === -1) return '';
   let s = String(idx + 1);
@@ -28,42 +35,70 @@ export function formatDepRef(ref: DependencyRef, tasks: Task[]): string {
   return s;
 }
 
-export function formatDeps(task: Task, tasks: Task[]): string {
+export function formatDeps(task: Task, tasks: Task[], wbsMap?: Map<string, string>): string {
   return depRefs(task)
-    .map(r => formatDepRef(r, tasks))
+    .map(r => formatDepRef(r, tasks, wbsMap))
     .filter(Boolean)
     .join(', ');
 }
 
-const DEP_INPUT_RE = /^(\d+)\s*(FS|SS|FF|SF)?\s*([+-]\s*\d+)?$/i;
+const DEP_INPUT_RE = /^([\d.]+)\s*(FS|SS|FF|SF)?\s*([+-]\s*\d+)?$/i;
 
 export interface ParsedDepToken {
-  row: number;
+  id: string;
   type: DepType;
   lag: number;
 }
 
 /**
  * 先行列の入力（カンマ区切り）を解析する。
- * invalid には解析不能または行番号が範囲外のトークンが入る。
+ * WBSコード（例: "1.1"）または行番号（例: "3"）のどちらからでもタスクを特定できる。
+ * invalid には解析不能または一致するタスクがないトークンが入る。
  */
-export function parseDepsInput(input: string, taskCount: number): { tokens: ParsedDepToken[]; invalid: string[] } {
+export function parseDepsInput(
+  input: string,
+  tasks: Task[],
+  wbsMap?: Map<string, string>
+): { tokens: ParsedDepToken[]; invalid: string[] } {
   const tokens: ParsedDepToken[] = [];
   const invalid: string[] = [];
+
+  const wbsToId = new Map<string, string>();
+  if (wbsMap) {
+    for (const [id, wbs] of wbsMap.entries()) {
+      wbsToId.set(wbs, id);
+    }
+  }
+
   for (const token of input.split(',').map(s => s.trim()).filter(Boolean)) {
     const m = token.match(DEP_INPUT_RE);
     if (!m) {
       invalid.push(token);
       continue;
     }
-    const row = parseInt(m[1], 10);
-    if (row < 1 || row > taskCount) {
+    const refStr = m[1]; // "1.1" または "3" など
+    const type = (m[2]?.toUpperCase() ?? 'FS') as DepType;
+    const lag = m[3] ? parseInt(m[3].replace(/\s/g, ''), 10) : 0;
+
+    let targetId: string | undefined;
+
+    // 1. WBSコードで検索
+    if (wbsToId.has(refStr)) {
+      targetId = wbsToId.get(refStr);
+    } else {
+      // 2. 行番号（1始まり）で検索
+      const rowIdx = parseInt(refStr, 10);
+      if (!isNaN(rowIdx) && rowIdx >= 1 && rowIdx <= tasks.length) {
+        targetId = tasks[rowIdx - 1].id;
+      }
+    }
+
+    if (!targetId) {
       invalid.push(token);
       continue;
     }
-    const type = (m[2]?.toUpperCase() ?? 'FS') as DepType;
-    const lag = m[3] ? parseInt(m[3].replace(/\s/g, ''), 10) : 0;
-    tokens.push({ row, type, lag });
+
+    tokens.push({ id: targetId, type, lag });
   }
   return { tokens, invalid };
 }

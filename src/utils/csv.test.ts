@@ -43,7 +43,7 @@ describe('exportTasksToCSV', () => {
   it('BOM 付きでヘッダー行を含む', () => {
     const csv = exportTasksToCSV(makeProject([makeTask({ id: '1', name: 'A' })]));
     expect(csv.startsWith('﻿')).toBe(true);
-    expect(csv).toContain('行番号,WBS,タスク名,期間,開始日,終了日,進捗,担当者,先行,メモ');
+    expect(csv).toContain('＃,タスク名,期間,開始日,終了日,進捗,担当者,先行,メモ');
   });
 
   it('カンマを含む名前をクオートする', () => {

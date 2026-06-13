@@ -4,6 +4,7 @@ import {
   addWorkingDays,
   countWorkingDays,
   getWorkingDaysBetween,
+  snapToWorkingDay,
 } from './calendar';
 import type { Calendar } from '../types';
 
@@ -72,6 +73,26 @@ describe('countWorkingDays', () => {
       const end = addWorkingDays(start, d, defaultCalendar);
       expect(countWorkingDays(start, end, defaultCalendar)).toBe(d);
     }
+  });
+});
+
+describe('snapToWorkingDay', () => {
+  it('keeps a working day unchanged (Monday)', () => {
+    expect(snapToWorkingDay('2026-06-08', defaultCalendar)).toBe('2026-06-08');
+  });
+
+  it('snaps Saturday back to Friday (nearest)', () => {
+    expect(snapToWorkingDay('2026-06-13', defaultCalendar)).toBe('2026-06-12');
+  });
+
+  it('snaps Sunday forward to Monday (nearest)', () => {
+    expect(snapToWorkingDay('2026-06-14', defaultCalendar)).toBe('2026-06-15');
+  });
+
+  it('snaps over holidays to the nearest working day', () => {
+    // 2026-06-14(Sun): forward 06-15/06-16 are holidays, 06-17(Wed) is 3 days away;
+    // backward 06-13(Sat) is non-working but 06-12(Fri) is only 2 days away -> 06-12
+    expect(snapToWorkingDay('2026-06-14', calendarWithHolidays)).toBe('2026-06-12');
   });
 });
 

@@ -4,7 +4,7 @@ import { getFilteredVisibleTasks, checkCircularDependency } from '../../utils/ta
 import { depRefs, depIds, toDepRef, formatDepRef } from '../../utils/deps';
 import { isDepViolated, criticalTaskIds } from '../../utils/schedule';
 import { darken } from '../../utils/color';
-import { toDate, fromDate, addWorkingDays, countWorkingDays } from '../../utils/calendar';
+import { toDate, fromDate, addWorkingDays, countWorkingDays, isWorkingDay } from '../../utils/calendar';
 import { addDays, differenceInCalendarDays } from 'date-fns';
 import type { Task } from '../../types';
 import styles from './GanttView.module.css';
@@ -121,6 +121,19 @@ export function GanttView({ svgRef, wrapperRef, scrollRef, scrollToTodayRef }: G
     return fromDate(addDays(minDate, dayOffset));
   }, [minDate, colWidth]);
 
+  // バーの右端 x 座標。endDate は「最終稼働日の翌日」（半開区間）なので、
+  // 末尾の非稼働日（土日・休日）を切り詰めて、実際に占有する最終稼働日の
+  // 列末で止める。これにより金曜開始・期間1日のタスクが日曜まで伸びない。
+  const getBarEndX = useCallback((task: Task): number => {
+    if (task.isMilestone) return getX(task.startDate);
+    const start = toDate(task.startDate);
+    let d = addDays(toDate(task.endDate), -1);
+    while (d > start && !isWorkingDay(fromDate(d), project.calendar)) {
+      d = addDays(d, -1);
+    }
+    return getX(fromDate(d)) + colWidth;
+  }, [getX, colWidth, project.calendar]);
+
   const todayStr = fromDate(new Date());
 
   // Expose "scroll to today" to the toolbar
@@ -163,7 +176,7 @@ export function GanttView({ svgRef, wrapperRef, scrollRef, scrollToTodayRef }: G
       const idx = visibleTasks.findIndex(t => t.id === taskId);
       if (idx !== -1) {
         const barY = idx * ROW_HEIGHT + BAR_Y_OFFSET + BAR_HEIGHT / 2;
-        const barEndX = getX(endDate);
+        const barEndX = getBarEndX(visibleTasks[idx]);
         setLinkingState({
           fromTaskId: taskId,
           startX: barEndX,
@@ -262,11 +275,10 @@ export function GanttView({ svgRef, wrapperRef, scrollRef, scrollToTodayRef }: G
           if (dayOffset !== 0) {
             const newEnd = fromDate(addDays(originalEnd, dayOffset));
             const startDate = dragging.originalStartDate;
-            // Keep at least one working day, otherwise UPDATE_TASK derives
-            // duration 0 and silently turns the task into a milestone
-            const endDate = countWorkingDays(startDate, newEnd, project.calendar) < 1
-              ? addWorkingDays(startDate, 1, project.calendar)
-              : newEnd;
+            // duration（稼働日数）を求め、終了日は必ず稼働日に着地させる。
+            // 最低1稼働日を保つ（0だとマイルストーン化してしまう）。
+            const duration = Math.max(1, countWorkingDays(startDate, newEnd, project.calendar));
+            const endDate = addWorkingDays(startDate, duration, project.calendar);
             dispatch({ type: 'UPDATE_TASK', id: dragging.taskId, changes: { endDate } });
           }
         }
@@ -470,6 +482,9 @@ export function GanttView({ svgRef, wrapperRef, scrollRef, scrollToTodayRef }: G
                 {cell.isWeekend && (
                   <rect x={cell.x} y={18} width={cell.width} height={19} className={styles.weekendBg} />
                 )}
+                {cell.isToday && (
+                  <rect x={cell.x} y={18} width={cell.width} height={19} className={styles.todayBg} />
+                )}
                 <line x1={cell.x} y1={18} x2={cell.x} y2={HEADER_HEIGHT - 1} className={styles.gridLine} />
                 <text
                   x={centerX}
@@ -477,8 +492,7 @@ export function GanttView({ svgRef, wrapperRef, scrollRef, scrollToTodayRef }: G
                   className={styles.timelineText}
                   textAnchor="middle"
                   style={{
-                    fill: cell.isToday ? '#ef4444' : cell.isSun ? '#ef4444' : cell.isSat ? '#3b82f6' : undefined,
-                    fontWeight: cell.isToday ? '800' : undefined
+                    fill: cell.isSun ? '#ef4444' : cell.isSat ? '#3b82f6' : undefined,
                   }}
                 >
                   {cell.label}
@@ -545,6 +559,15 @@ export function GanttView({ svgRef, wrapperRef, scrollRef, scrollToTodayRef }: G
             <rect key={idx} x={bg.x} y={0} width={bg.width} height={barsHeight} className={styles.weekendBg} />
           ))}
 
+          {/* Today column highlight (drawn over weekend bg so 本日 is distinguishable) */}
+          {(() => {
+            const todayX = getX(todayStr);
+            if (todayX >= 0 && todayX <= totalWidth) {
+              return <rect x={todayX} y={0} width={colWidth} height={barsHeight} className={styles.todayBg} />;
+            }
+            return null;
+          })()}
+
           {/* Vertical grid lines */}
           {bottomHeaderCells.map((cell) => (
             <line key={cell.key} x1={cell.x} y1={0} x2={cell.x} y2={barsHeight} className={styles.gridLine} />
@@ -581,10 +604,10 @@ export function GanttView({ svgRef, wrapperRef, scrollRef, scrollToTodayRef }: G
               if (predIdx === -1) return null;
 
               const predTask = visibleTasks[predIdx];
-              const predX = ref.type[0] === 'F' ? getX(predTask.endDate) : getX(predTask.startDate);
+              const predX = ref.type[0] === 'F' ? getBarEndX(predTask) : getX(predTask.startDate);
               const predY = predIdx * ROW_HEIGHT + BAR_Y_OFFSET + BAR_HEIGHT / 2;
 
-              const succX = ref.type[1] === 'S' ? getX(task.startDate) : getX(task.endDate);
+              const succX = ref.type[1] === 'S' ? getX(task.startDate) : getBarEndX(task);
               const succY = succIdx * ROW_HEIGHT + BAR_Y_OFFSET + BAR_HEIGHT / 2;
               
               const startX = predX;
@@ -694,7 +717,8 @@ export function GanttView({ svgRef, wrapperRef, scrollRef, scrollToTodayRef }: G
               const resizeDelta = currentXRef.current - getX(d!.originalEndDate);
               barWidth = Math.max(4, (originalX2 - originalX1) + resizeDelta);
             } else {
-              barWidth = Math.max(4, originalX2 - originalX1);
+              // 末尾の非稼働日を切り詰めた可視幅
+              barWidth = Math.max(4, getBarEndX(task) - originalX1);
             }
 
             const hasChildren = project.tasks.some(t => t.parentId === task.id);
@@ -795,6 +819,7 @@ export function GanttView({ svgRef, wrapperRef, scrollRef, scrollToTodayRef }: G
                     rx={2}
                     ry={2}
                     className={styles.progressFill}
+                    style={{ fill: task.color ? darken(task.color, 0.72) : 'var(--progress-fill)' }}
                   />
                 )}
                 <rect
