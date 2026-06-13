@@ -11,6 +11,17 @@ import {
 } from '../utils/taskTree';
 import { addWorkingDays, fromDate, toDate, countWorkingDays } from '../utils/calendar';
 import { scheduleProject } from '../utils/schedule';
+import {
+  type ProjectMeta,
+  generateId as genProjectId,
+  loadRegistry,
+  saveRegistry,
+  loadProjectById,
+  saveProjectById,
+  deleteProjectById,
+  loadLegacyProject,
+  deleteLegacyProject,
+} from '../utils/projectStore';
 import { addDays } from 'date-fns';
 
 function generateId(): string {
@@ -22,36 +33,6 @@ function generateId(): string {
     const v = c === 'x' ? r : (r & 0x3) | 0x8;
     return v.toString(16);
   });
-}
-
-const STORE_NAME = 'gannt-project';
-const DB_NAME = 'gannt-db';
-
-async function saveToIndexedDB(project: Project): Promise<void> {
-  const { openDB } = await import('idb');
-  const db = await openDB(DB_NAME, 1, {
-    upgrade(db) {
-      db.createObjectStore('projects');
-    },
-  });
-  await db.put('projects', project, STORE_NAME);
-  db.close();
-}
-
-async function loadFromIndexedDB(): Promise<Project | null> {
-  try {
-    const { openDB } = await import('idb');
-    const db = await openDB(DB_NAME, 1, {
-      upgrade(db) {
-        db.createObjectStore('projects');
-      },
-    });
-    const project = await db.get('projects', STORE_NAME);
-    db.close();
-    return project ?? null;
-  } catch {
-    return null;
-  }
 }
 
 function applyTaskChanges(t: Task, changes: Partial<Task>, calendar: Calendar): Task {
@@ -609,6 +590,13 @@ interface ProjectContextValue {
   cutTask: (id: string) => void;
   pasteTask: () => void;
   canPaste: boolean;
+  // 複数プロジェクト管理
+  projectList: ProjectMeta[];
+  activeProjectId: string;
+  switchProject: (id: string) => void;
+  createProject: () => void;
+  duplicateProject: () => void;
+  deleteProject: (id: string) => void;
 }
 
 const ProjectContext = createContext<ProjectContextValue | null>(null);
@@ -626,7 +614,11 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const [showCriticalPath, setShowCriticalPath] = useState(false);
   const [filterText, setFilterText] = useState('');
   const [clipboard, setClipboard] = useState<ClipboardContent | null>(null);
+  const [projectList, setProjectList] = useState<ProjectMeta[]>([]);
+  const [activeProjectId, setActiveProjectId] = useState<string>('');
   const loaded = useRef(false);
+  const activeIdRef = useRef('');
+  activeIdRef.current = activeProjectId;
 
   const project = history.present;
 
@@ -756,23 +748,112 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
   const canPaste = clipboard !== null;
 
+  const projectRef = useRef(project);
+  projectRef.current = project;
+  const listRef = useRef(projectList);
+  listRef.current = projectList;
+
+  // 初回ロード（必要なら旧単一スロットからマイグレーション）
   useEffect(() => {
     if (loaded.current) return;
     loaded.current = true;
-    loadFromIndexedDB().then(saved => {
-      if (saved) {
-        dispatch({ type: 'LOAD_PROJECT', project: saved });
+    (async () => {
+      let registry = await loadRegistry();
+      if (!registry) {
+        const legacy = await loadLegacyProject();
+        const id = genProjectId();
+        const proj = legacy ?? createDefaultProject();
+        await saveProjectById(id, proj);
+        registry = { activeId: id, projects: [{ id, name: proj.name, updatedAt: Date.now() }] };
+        await saveRegistry(registry);
+        if (legacy) await deleteLegacyProject();
+        setProjectList(registry.projects);
+        setActiveProjectId(id);
+        dispatch({ type: 'LOAD_PROJECT', project: proj });
+        return;
       }
+      const active = await loadProjectById(registry.activeId);
+      setProjectList(registry.projects);
+      setActiveProjectId(registry.activeId);
+      if (active) dispatch({ type: 'LOAD_PROJECT', project: active });
+    })();
+  }, [dispatch]);
+
+  // アクティブプロジェクトの自動保存（デバウンス）＋レジストリ名同期
+  useEffect(() => {
+    if (!loaded.current || !activeProjectId) return;
+    const timer = setTimeout(() => {
+      void saveProjectById(activeProjectId, project);
+      setProjectList(prev => {
+        const next = prev.map(p =>
+          p.id === activeProjectId ? { ...p, name: project.name, updatedAt: Date.now() } : p
+        );
+        void saveRegistry({ activeId: activeProjectId, projects: next });
+        return next;
+      });
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [project, activeProjectId]);
+
+  const switchProject = useCallback((id: string) => {
+    if (id === activeIdRef.current) return;
+    void saveProjectById(activeIdRef.current, projectRef.current);
+    loadProjectById(id).then(p => {
+      if (!p) return;
+      setActiveProjectId(id);
+      setSelectedTaskIds([]);
+      dispatch({ type: 'LOAD_PROJECT', project: p });
+      void saveRegistry({ activeId: id, projects: listRef.current });
     });
   }, [dispatch]);
 
-  useEffect(() => {
-    if (!loaded.current) return;
-    const timer = setTimeout(() => {
-      saveToIndexedDB(project);
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [project]);
+  const createProject = useCallback(() => {
+    if (activeIdRef.current) void saveProjectById(activeIdRef.current, projectRef.current);
+    const id = genProjectId();
+    const proj = createDefaultProject();
+    void saveProjectById(id, proj);
+    const next = [...listRef.current, { id, name: proj.name, updatedAt: Date.now() }];
+    setProjectList(next);
+    setActiveProjectId(id);
+    setSelectedTaskIds([]);
+    dispatch({ type: 'LOAD_PROJECT', project: proj });
+    void saveRegistry({ activeId: id, projects: next });
+  }, [dispatch]);
+
+  const duplicateProject = useCallback(() => {
+    if (activeIdRef.current) void saveProjectById(activeIdRef.current, projectRef.current);
+    const id = genProjectId();
+    const src = projectRef.current;
+    const proj: Project = { ...src, name: `${src.name} のコピー` };
+    void saveProjectById(id, proj);
+    const next = [...listRef.current, { id, name: proj.name, updatedAt: Date.now() }];
+    setProjectList(next);
+    setActiveProjectId(id);
+    setSelectedTaskIds([]);
+    dispatch({ type: 'LOAD_PROJECT', project: proj });
+    void saveRegistry({ activeId: id, projects: next });
+  }, [dispatch]);
+
+  const deleteProject = useCallback((id: string) => {
+    const list = listRef.current;
+    if (list.length <= 1) {
+      alert('最後のプロジェクトは削除できません。');
+      return;
+    }
+    const next = list.filter(p => p.id !== id);
+    void deleteProjectById(id);
+    let activeId = activeIdRef.current;
+    if (id === activeId) {
+      activeId = next[0].id;
+      setActiveProjectId(activeId);
+      setSelectedTaskIds([]);
+      loadProjectById(activeId).then(p => {
+        if (p) dispatch({ type: 'LOAD_PROJECT', project: p });
+      });
+    }
+    setProjectList(next);
+    void saveRegistry({ activeId, projects: next });
+  }, [dispatch]);
 
   return (
     <ProjectContext.Provider
@@ -797,6 +878,12 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         cutTask,
         pasteTask,
         canPaste,
+        projectList,
+        activeProjectId,
+        switchProject,
+        createProject,
+        duplicateProject,
+        deleteProject,
       }}
     >
       {children}

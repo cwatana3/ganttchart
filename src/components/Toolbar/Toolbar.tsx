@@ -34,15 +34,25 @@ export function Toolbar({ onOpenCalendar, onOpenExport, onToday }: ToolbarProps)
     cutTask,
     pasteTask,
     canPaste,
+    projectList,
+    activeProjectId,
+    switchProject,
+    createProject,
+    duplicateProject,
+    deleteProject,
   } = useProject();
   const { light, toggle: toggleTheme } = useTheme();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
 
   const handleNew = () => {
-    if (confirm('現在のプロジェクトを破棄して新規作成しますか？')) {
-      dispatch({ type: 'LOAD_PROJECT', project: { name: '新規プロジェクト', calendar: { workingDays: [1, 2, 3, 4, 5], holidays: [] }, tasks: [] } });
-      setSelectedTaskId(null);
+    createProject();
+  };
+
+  const handleDeleteProject = () => {
+    const meta = projectList.find(p => p.id === activeProjectId);
+    if (meta && confirm(`プロジェクト「${meta.name}」を削除しますか？この操作は元に戻せません。`)) {
+      deleteProject(activeProjectId);
     }
   };
 
@@ -141,6 +151,31 @@ export function Toolbar({ onOpenCalendar, onOpenExport, onToday }: ToolbarProps)
 
   return (
     <div className={styles.toolbar}>
+      <div className={styles.projectSwitcher}>
+        <select
+          className={styles.projectSelect}
+          value={activeProjectId}
+          onChange={e => switchProject(e.target.value)}
+          title="プロジェクトを切り替え"
+        >
+          {projectList.map(p => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
+        <button className={styles.iconButton} onClick={createProject} title="新規プロジェクト">＋</button>
+        <button className={styles.iconButton} onClick={duplicateProject} title="プロジェクトを複製">⧉</button>
+        <button
+          className={styles.iconButton}
+          onClick={handleDeleteProject}
+          disabled={projectList.length <= 1}
+          title="プロジェクトを削除"
+        >
+          🗑
+        </button>
+      </div>
+
+      <div className={styles.separator} />
+
       <button className={styles.button} onClick={handleNew}>📄 新規</button>
       <button className={styles.button} onClick={handleOpen}>📂 開く</button>
       <button className={styles.button} onClick={handleSave}>💾 保存</button>
