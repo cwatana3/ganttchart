@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { shiftWorkingDays, constraintDate, isDepViolated } from './schedule';
+import { shiftWorkingDays, constraintDate, isDepViolated, scheduleProject } from './schedule';
 import type { Calendar, Task, DependencyRef } from '../types';
 
 // 2026-06-08 (月) 〜 2026-06-12 (金) が平日の週
@@ -108,5 +108,81 @@ describe('isDepViolated', () => {
     expect(isDepViolated(succ, pred, { id: 'p', type: 'FS', lag: 2 }, calendar)).toBe(true);
     const succOk = makeTask({ id: 's', startDate: '2026-06-16', endDate: '2026-06-19' });
     expect(isDepViolated(succOk, pred, { id: 'p', type: 'FS', lag: 2 }, calendar)).toBe(false);
+  });
+});
+
+describe('scheduleProject', () => {
+  it('違反がなければ同じ配列参照を返す', () => {
+    const tasks = [
+      makeTask({ id: 'a', startDate: '2026-06-08', endDate: '2026-06-10', duration: 2 }),
+      makeTask({ id: 'b', startDate: '2026-06-10', endDate: '2026-06-12', duration: 2, dependencies: ['a'] }),
+    ];
+    expect(scheduleProject(tasks, calendar)).toBe(tasks);
+  });
+
+  it('FS違反の後続を先行の終了日まで後送りする', () => {
+    const tasks = [
+      makeTask({ id: 'a', startDate: '2026-06-08', endDate: '2026-06-12', duration: 4 }),
+      makeTask({ id: 'b', startDate: '2026-06-08', endDate: '2026-06-10', duration: 2, dependencies: ['a'] }),
+    ];
+    const result = scheduleProject(tasks, calendar);
+    const b = result.find(t => t.id === 'b')!;
+    expect(b.startDate).toBe('2026-06-12');
+    // duration は維持
+    expect(b.duration).toBe(2);
+    expect(b.endDate).toBe('2026-06-16');
+  });
+
+  it('前倒しはしない（既に余裕がある後続は動かさない）', () => {
+    const tasks = [
+      makeTask({ id: 'a', startDate: '2026-06-08', endDate: '2026-06-10', duration: 2 }),
+      makeTask({ id: 'b', startDate: '2026-06-15', endDate: '2026-06-17', duration: 2, dependencies: ['a'] }),
+    ];
+    const result = scheduleProject(tasks, calendar);
+    const b = result.find(t => t.id === 'b')!;
+    expect(b.startDate).toBe('2026-06-15');
+  });
+
+  it('連鎖する依存を順に後送りする', () => {
+    const tasks = [
+      makeTask({ id: 'a', startDate: '2026-06-08', endDate: '2026-06-12', duration: 4 }),
+      makeTask({ id: 'b', startDate: '2026-06-08', endDate: '2026-06-10', duration: 2, dependencies: ['a'] }),
+      makeTask({ id: 'c', startDate: '2026-06-08', endDate: '2026-06-10', duration: 2, dependencies: ['b'] }),
+    ];
+    const result = scheduleProject(tasks, calendar);
+    const b = result.find(t => t.id === 'b')!;
+    const c = result.find(t => t.id === 'c')!;
+    expect(b.startDate).toBe('2026-06-12');
+    expect(c.startDate).toBe(b.endDate);
+  });
+
+  it('ラグ付きFSを考慮して後送りする', () => {
+    const tasks = [
+      makeTask({ id: 'a', startDate: '2026-06-08', endDate: '2026-06-12', duration: 4 }),
+      makeTask({ id: 'b', startDate: '2026-06-08', endDate: '2026-06-10', duration: 2, dependencies: [{ id: 'a', type: 'FS', lag: 2 }] }),
+    ];
+    const result = scheduleProject(tasks, calendar);
+    const b = result.find(t => t.id === 'b')!;
+    // 金(6/12) + 2稼働日 = 火(6/16)
+    expect(b.startDate).toBe('2026-06-16');
+  });
+
+  it('マイルストーンは start=end を維持して後送りする', () => {
+    const tasks = [
+      makeTask({ id: 'a', startDate: '2026-06-08', endDate: '2026-06-12', duration: 4 }),
+      makeTask({ id: 'm', startDate: '2026-06-08', endDate: '2026-06-08', duration: 0, isMilestone: true, dependencies: ['a'] }),
+    ];
+    const result = scheduleProject(tasks, calendar);
+    const m = result.find(t => t.id === 'm')!;
+    expect(m.startDate).toBe('2026-06-12');
+    expect(m.endDate).toBe('2026-06-12');
+  });
+
+  it('循環依存でも無限ループせず終了する', () => {
+    const tasks = [
+      makeTask({ id: 'a', startDate: '2026-06-08', endDate: '2026-06-10', duration: 2, dependencies: ['b'] }),
+      makeTask({ id: 'b', startDate: '2026-06-08', endDate: '2026-06-10', duration: 2, dependencies: ['a'] }),
+    ];
+    expect(() => scheduleProject(tasks, calendar)).not.toThrow();
   });
 });

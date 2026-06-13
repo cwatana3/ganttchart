@@ -56,6 +56,17 @@
   box-shadow: none;
 }
 
+.button.active {
+  background: var(--accent-gradient);
+  color: #ffffff;
+  border-color: transparent;
+}
+
+.button.active:hover:not(:disabled) {
+  background: var(--accent-gradient);
+  color: #ffffff;
+}
+
 .labelGroup {
   display: flex;
   align-items: center;

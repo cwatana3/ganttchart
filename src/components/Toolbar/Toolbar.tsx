@@ -194,6 +194,14 @@ export function Toolbar({ onOpenCalendar, onToday }: ToolbarProps) {
       </div>
       <button className={styles.button} onClick={onToday} title="今日の位置へスクロール">📍 今日</button>
 
+      <button
+        className={`${styles.button} ${project.autoSchedule ? styles.active : ''}`}
+        onClick={() => dispatch({ type: 'SET_AUTO_SCHEDULE', enabled: !project.autoSchedule })}
+        title="依存関係に基づいて後続タスクを自動で後送りします"
+      >
+        {project.autoSchedule ? '🔗 自動配置: ON' : '🔗 自動配置: OFF'}
+      </button>
+
       <div className={styles.separator} />
 
       <button className={styles.button} onClick={onOpenCalendar}>📅 カレンダー設定</button>

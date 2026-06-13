@@ -10,6 +10,7 @@ import {
   canOutdent,
 } from '../utils/taskTree';
 import { addWorkingDays, fromDate, toDate, countWorkingDays } from '../utils/calendar';
+import { scheduleProject } from '../utils/schedule';
 import { addDays } from 'date-fns';
 
 function generateId(): string {
@@ -519,10 +520,16 @@ function updateParentTasks(tasks: Task[], calendar: Calendar): Task[] {
 function projectReducer(state: Project, action: ProjectAction): Project {
   const nextState = rawProjectReducer(state, action);
   if (nextState === state) return state;
-  return {
-    ...nextState,
-    tasks: updateParentTasks(nextState.tasks, nextState.calendar),
-  };
+
+  let tasks = nextState.tasks;
+  if (nextState.autoSchedule) {
+    // 依存制約を満たすよう後送り → 親を再集約（リーフが動くと親の期間も変わる）
+    tasks = updateParentTasks(scheduleProject(updateParentTasks(tasks, nextState.calendar), nextState.calendar), nextState.calendar);
+  } else {
+    tasks = updateParentTasks(tasks, nextState.calendar);
+  }
+
+  return { ...nextState, tasks };
 }
 
 function findLastIndex(tasks: Task[], taskId: string): number {
