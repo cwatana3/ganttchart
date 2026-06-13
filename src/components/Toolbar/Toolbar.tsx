@@ -1,7 +1,7 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { useProject } from '../../store/ProjectContext';
 import { useTheme } from '../../store/ThemeContext';
-import { importFromJSON, exportToJSON } from '../../utils/export';
+import { importFromJSON, exportToJSON, copyGanttToClipboard, canCopyImageToClipboard } from '../../utils/export';
 import { exportTasksToCSV, parseTasksFromCSV } from '../../utils/csv';
 import { canIndent, canOutdent } from '../../utils/taskTree';
 import {
@@ -10,6 +10,7 @@ import {
   IconCopy, IconCut, IconPaste, IconToday, IconLink, IconCritical,
   IconBaseline, IconCalendar, IconExport, IconCsvDown, IconCsvUp,
   IconHistory, IconSearch, IconSun, IconMoon, IconClose,
+  IconImageCopy, IconCheck,
 } from './icons';
 import styles from './Toolbar.module.css';
 
@@ -52,6 +53,17 @@ export function Toolbar({ onOpenCalendar, onOpenExport, onOpenBackup, onToday }:
   const { light, toggle: toggleTheme } = useTheme();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyImage = async () => {
+    try {
+      await copyGanttToClipboard(project, light, viewMode, showCriticalPath);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'クリップボードへのコピーに失敗しました');
+    }
+  };
 
   const handleDeleteProject = () => {
     const meta = projectList.find(p => p.id === activeProjectId);
@@ -242,6 +254,15 @@ export function Toolbar({ onOpenCalendar, onOpenExport, onOpenBackup, onToday }:
       {/* 設定・エクスポート */}
       <div className={styles.group}>
         <button className={styles.iconBtn} onClick={onOpenCalendar} title="カレンダー設定"><IconCalendar /></button>
+        {canCopyImageToClipboard() && (
+          <button
+            className={`${styles.iconBtn} ${copied ? styles.success : ''}`}
+            onClick={handleCopyImage}
+            title="画像をクリップボードにコピー（PowerPoint等に Ctrl+V で貼り付け）"
+          >
+            {copied ? <IconCheck /> : <IconImageCopy />}
+          </button>
+        )}
         <button className={styles.iconBtn} onClick={onOpenExport} title="エクスポート（SVG / PNG / 印刷）"><IconExport /></button>
         <button className={styles.iconBtn} onClick={handleExportCSV} title="CSV出力"><IconCsvDown /></button>
         <button className={styles.iconBtn} onClick={handleImportCSVClick} title="CSV取込"><IconCsvUp /></button>

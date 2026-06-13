@@ -207,3 +207,17 @@ export const IconClose = () => (
     <path d="M18 6 6 18M6 6l12 12" />
   </Svg>
 );
+
+export const IconImageCopy = () => (
+  <Svg>
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <circle cx="9" cy="9" r="1.6" />
+    <path d="m21 15-4.5-4.5L7 20" />
+  </Svg>
+);
+
+export const IconCheck = () => (
+  <Svg>
+    <path d="M20 6 9 17l-5-5" />
+  </Svg>
+);

@@ -867,15 +867,15 @@ function loadImage(url: string): Promise<HTMLImageElement> {
   });
 }
 
-/** ガントを高解像度 PNG にラスタライズしてダウンロードする */
-export async function exportToPNG(
+/** ガントを高解像度 PNG の Blob にラスタライズする（不透明背景付き） */
+async function renderGanttPngBlob(
   project: Project,
   light: boolean,
-  viewMode: 'day' | 'week' | 'month' = 'day',
-  showCriticalPath = false,
-  scale = 2,
+  viewMode: 'day' | 'week' | 'month',
+  showCriticalPath: boolean,
+  scale: number,
   dateRange?: ExportDateRange,
-): Promise<void> {
+): Promise<Blob> {
   const svg = buildGanttSvg(project, light, viewMode, showCriticalPath, dateRange);
   const width = Number(svg.getAttribute('width')) || 800;
   const height = Number(svg.getAttribute('height')) || 600;
@@ -896,10 +896,53 @@ export async function exportToPNG(
     ctx.drawImage(img, 0, 0);
 
     const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
-    if (blob) downloadBlob(blob, `${project.name}.png`);
+    if (!blob) throw new Error('画像の生成に失敗しました');
+    return blob;
   } finally {
     URL.revokeObjectURL(url);
   }
+}
+
+/** ガントを高解像度 PNG にラスタライズしてダウンロードする */
+export async function exportToPNG(
+  project: Project,
+  light: boolean,
+  viewMode: 'day' | 'week' | 'month' = 'day',
+  showCriticalPath = false,
+  scale = 2,
+  dateRange?: ExportDateRange,
+): Promise<void> {
+  const blob = await renderGanttPngBlob(project, light, viewMode, showCriticalPath, scale, dateRange);
+  downloadBlob(blob, `${project.name}.png`);
+}
+
+/** クリップボードへの画像コピーに対応しているか */
+export function canCopyImageToClipboard(): boolean {
+  return typeof navigator !== 'undefined'
+    && !!navigator.clipboard
+    && typeof window !== 'undefined'
+    && typeof window.ClipboardItem !== 'undefined';
+}
+
+/**
+ * ガント図を PNG 画像としてクリップボードにコピーする。
+ * PowerPoint や Word などに Ctrl+V でそのまま貼り付けられる。
+ * ClipboardItem には Blob の Promise を渡し、ユーザー操作（クリック）の
+ * コンテキストを保ったまま非同期生成する（Safari 対策）。
+ */
+export async function copyGanttToClipboard(
+  project: Project,
+  light: boolean,
+  viewMode: 'day' | 'week' | 'month' = 'day',
+  showCriticalPath = false,
+  scale = 2,
+  dateRange?: ExportDateRange,
+): Promise<void> {
+  if (!canCopyImageToClipboard()) {
+    throw new Error('このブラウザはクリップボードへの画像コピーに対応していません');
+  }
+  const blobPromise = renderGanttPngBlob(project, light, viewMode, showCriticalPath, scale, dateRange);
+  await navigator.clipboard.write([new ClipboardItem({ 'image/png': blobPromise })]);
 }
 
 /** ガントを別ウィンドウで開いて印刷ダイアログを表示する */
