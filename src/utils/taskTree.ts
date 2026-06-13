@@ -1,4 +1,5 @@
 import type { Task } from '../types';
+import { depRefs } from './deps';
 
 export function getChildren(parentId: string, tasks: Task[]): Task[] {
   return tasks.filter(t => t.parentId === parentId);
@@ -68,6 +69,51 @@ export function getVisibleTasks(tasks: Task[]): Task[] {
   return result;
 }
 
+/** タスク名・担当者・メモのいずれかに query（大文字小文字無視）を含むか */
+export function taskMatchesQuery(task: Task, query: string): boolean {
+  const q = query.toLowerCase();
+  return (
+    task.name.toLowerCase().includes(q) ||
+    (task.assignee ?? '').toLowerCase().includes(q) ||
+    (task.notes ?? '').toLowerCase().includes(q)
+  );
+}
+
+/**
+ * query に一致するタスクとその祖先のみをツリー順で返す。
+ * 一致タスクを常に見えるようにするため collapsed は無視する。
+ * query が空なら通常の getVisibleTasks と同じ。
+ */
+export function getFilteredVisibleTasks(tasks: Task[], query: string): Task[] {
+  const trimmed = query.trim();
+  if (!trimmed) return getVisibleTasks(tasks);
+
+  const byId = new Map(tasks.map(t => [t.id, t]));
+  const keep = new Set<string>();
+  for (const t of tasks) {
+    if (taskMatchesQuery(t, trimmed)) {
+      keep.add(t.id);
+      let pid = t.parentId;
+      while (pid && !keep.has(pid)) {
+        keep.add(pid);
+        pid = byId.get(pid)?.parentId ?? null;
+      }
+    }
+  }
+
+  const result: Task[] = [];
+  function walk(list: Task[]) {
+    for (const t of list) {
+      if (keep.has(t.id)) {
+        result.push(t);
+        walk(getChildren(t.id, tasks));
+      }
+    }
+  }
+  walk(tasks.filter(t => t.parentId === null));
+  return result;
+}
+
 export function getFlattenedTasks(tasks: Task[]): Task[] {
   const result: Task[] = [];
   const rootTasks = tasks.filter(t => t.parentId === null);
@@ -81,6 +127,22 @@ export function getFlattenedTasks(tasks: Task[]): Task[] {
 
   walk(rootTasks);
   return result;
+}
+
+/** タスクID → WBS番号（"1.2.3" 形式）。ルート・兄弟とも配列順で採番する。 */
+export function getWbsMap(tasks: Task[]): Map<string, string> {
+  const map = new Map<string, string>();
+
+  function walk(list: Task[], prefix: string) {
+    list.forEach((t, i) => {
+      const wbs = prefix ? `${prefix}.${i + 1}` : String(i + 1);
+      map.set(t.id, wbs);
+      walk(getChildren(t.id, tasks), wbs);
+    });
+  }
+
+  walk(tasks.filter(t => t.parentId === null), '');
+  return map;
 }
 
 export function canIndent(taskId: string, tasks: Task[]): boolean {
@@ -104,9 +166,10 @@ export function checkCircularDependency(targetId: string, potentialPredecessorId
     if (visited.has(taskId)) return false;
     visited.add(taskId);
     const task = tasks.find(t => t.id === taskId);
-    if (!task || !task.dependencies) return false;
-    if (task.dependencies.includes(targetId)) return true;
-    return task.dependencies.some(dId => dependsOnTarget(dId));
+    if (!task) return false;
+    const refs = depRefs(task);
+    if (refs.some(r => r.id === targetId)) return true;
+    return refs.some(r => dependsOnTarget(r.id));
   }
 
   return dependsOnTarget(potentialPredecessorId);

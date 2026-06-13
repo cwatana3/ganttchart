@@ -137,10 +137,10 @@ describe('buildGanttSvg', () => {
     ]);
   }
 
-  it('renders all six table column headers', () => {
+  it('renders all ten table column headers', () => {
     const svg = buildGanttSvg(sampleProject(), false);
     const texts = Array.from(svg.querySelectorAll('text')).map(t => t.textContent);
-    for (const label of ['タスク名', '期間', '開始日', '終了日', '担当者', '先行']) {
+    for (const label of ['#', 'WBS', 'タスク名', '期間', '開始日', '終了日', '進捗', '担当者', '先行', 'メモ']) {
       expect(texts).toContain(label);
     }
   });
@@ -194,5 +194,49 @@ describe('buildGanttSvg', () => {
   it.each(['day', 'week', 'month'] as const)('renders in %s view mode', (mode) => {
     const svg = buildGanttSvg(sampleProject(), false, mode);
     expect(svg.querySelectorAll('rect[fill="url(#task-gradient)"]')).toHaveLength(2);
+  });
+
+  function chainProject(): Project {
+    return makeProject([
+      makeTask({ id: 'a', name: 'A', startDate: '2026-06-08', endDate: '2026-06-10', duration: 2 }),
+      makeTask({ id: 'b', name: 'B', startDate: '2026-06-10', endDate: '2026-06-12', duration: 2, dependencies: ['a'] }),
+    ]);
+  }
+
+  it('highlights critical-path bars when enabled', () => {
+    const svg = buildGanttSvg(chainProject(), false, 'day', true);
+    const reds = Array.from(svg.querySelectorAll('[stroke="#e11d48"]'));
+    expect(reds.length).toBeGreaterThan(0);
+  });
+
+  it('does not highlight critical path when disabled', () => {
+    const svg = buildGanttSvg(chainProject(), false, 'day', false);
+    expect(svg.querySelectorAll('[stroke="#e11d48"]')).toHaveLength(0);
+  });
+
+  it('renders baseline bars when a baseline is recorded', () => {
+    const project = makeProject([
+      makeTask({ id: 'a', name: 'A', startDate: '2026-06-10', endDate: '2026-06-12', duration: 2 }),
+    ]);
+    project.baseline = { a: { startDate: '2026-06-08', endDate: '2026-06-10' } };
+    const svg = buildGanttSvg(project, false, 'day');
+    expect(svg.querySelectorAll('rect[fill="#94a3b8"]').length).toBeGreaterThan(0);
+  });
+
+  it('renders no baseline bars without a baseline', () => {
+    const project = makeProject([
+      makeTask({ id: 'a', name: 'A', startDate: '2026-06-10', endDate: '2026-06-12', duration: 2 }),
+    ]);
+    const svg = buildGanttSvg(project, false, 'day');
+    expect(svg.querySelectorAll('rect[fill="#94a3b8"]')).toHaveLength(0);
+  });
+
+  it('limits the timeline width to an explicit date range', () => {
+    const project = makeProject([
+      makeTask({ id: 'a', name: 'A', startDate: '2026-06-01', endDate: '2026-08-31', duration: 60 }),
+    ]);
+    const full = buildGanttSvg(project, false, 'day');
+    const ranged = buildGanttSvg(project, false, 'day', false, { start: '2026-06-10', end: '2026-06-20' });
+    expect(Number(ranged.getAttribute('width'))).toBeLessThan(Number(full.getAttribute('width')));
   });
 });

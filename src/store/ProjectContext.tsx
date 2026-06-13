@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, useCallback, type ReactNode } from 'react';
-import type { Project, ProjectAction, Task, Calendar } from '../types';
+import type { Project, ProjectAction, Task, Calendar, BaselineEntry } from '../types';
 import { createDefaultProject } from '../types';
+import { toDepRef } from '../utils/deps';
 import {
   getFlattenedTasks,
   getChildren,
@@ -9,6 +10,22 @@ import {
   canOutdent,
 } from '../utils/taskTree';
 import { addWorkingDays, fromDate, toDate, countWorkingDays } from '../utils/calendar';
+import { scheduleProject } from '../utils/schedule';
+import {
+  type ProjectMeta,
+  generateId as genProjectId,
+  loadRegistry,
+  saveRegistry,
+  loadProjectById,
+  saveProjectById,
+  deleteProjectById,
+  loadLegacyProject,
+  deleteLegacyProject,
+  loadSnapshots,
+  saveSnapshots,
+  deleteSnapshots,
+} from '../utils/projectStore';
+import { pushSnapshot } from '../utils/snapshots';
 import { addDays } from 'date-fns';
 
 function generateId(): string {
@@ -22,34 +39,28 @@ function generateId(): string {
   });
 }
 
-const STORE_NAME = 'gannt-project';
-const DB_NAME = 'gannt-db';
+function applyTaskChanges(t: Task, changes: Partial<Task>, calendar: Calendar): Task {
+  const updated = { ...t, ...changes };
 
-async function saveToIndexedDB(project: Project): Promise<void> {
-  const { openDB } = await import('idb');
-  const db = await openDB(DB_NAME, 1, {
-    upgrade(db) {
-      db.createObjectStore('projects');
-    },
-  });
-  await db.put('projects', project, STORE_NAME);
-  db.close();
-}
-
-async function loadFromIndexedDB(): Promise<Project | null> {
-  try {
-    const { openDB } = await import('idb');
-    const db = await openDB(DB_NAME, 1, {
-      upgrade(db) {
-        db.createObjectStore('projects');
-      },
-    });
-    const project = await db.get('projects', STORE_NAME);
-    db.close();
-    return project ?? null;
-  } catch {
-    return null;
+  if (changes.duration !== undefined && !changes.endDate) {
+    updated.isMilestone = updated.duration === 0;
+    if (updated.isMilestone) {
+      updated.endDate = updated.startDate;
+    } else {
+      updated.endDate = addWorkingDays(updated.startDate, updated.duration, calendar);
+    }
+  } else if (changes.startDate !== undefined && !changes.endDate) {
+    if (updated.isMilestone) {
+      updated.endDate = updated.startDate;
+    } else {
+      updated.endDate = addWorkingDays(updated.startDate, updated.duration, calendar);
+    }
+  } else if (changes.endDate !== undefined && changes.startDate === undefined) {
+    updated.duration = countWorkingDays(updated.startDate, updated.endDate, calendar);
+    updated.isMilestone = updated.duration === 0;
   }
+
+  return updated;
 }
 
 function rawProjectReducer(state: Project, action: ProjectAction): Project {
@@ -62,6 +73,24 @@ function rawProjectReducer(state: Project, action: ProjectAction): Project {
 
     case 'SET_CALENDAR':
       return { ...state, calendar: action.calendar };
+
+    case 'SET_AUTO_SCHEDULE':
+      return { ...state, autoSchedule: action.enabled };
+
+    case 'SET_BASELINE': {
+      const baseline: Record<string, BaselineEntry> = {};
+      for (const t of state.tasks) {
+        baseline[t.id] = { startDate: t.startDate, endDate: t.endDate };
+      }
+      return { ...state, baseline };
+    }
+
+    case 'CLEAR_BASELINE': {
+      if (!state.baseline) return state;
+      const next = { ...state };
+      delete next.baseline;
+      return next;
+    }
 
     case 'ADD_TASK': {
       const newTask: Task = {
@@ -137,10 +166,10 @@ function rawProjectReducer(state: Project, action: ProjectAction): Project {
         collectChildren(id);
       }
       const remainingTasks = state.tasks.filter(t => !idsToDelete.has(t.id)).map(t => {
-        if (t.dependencies && t.dependencies.some(d => idsToDelete.has(d))) {
+        if (t.dependencies && t.dependencies.some(d => idsToDelete.has(toDepRef(d).id))) {
           return {
             ...t,
-            dependencies: t.dependencies.filter(d => !idsToDelete.has(d)),
+            dependencies: t.dependencies.filter(d => !idsToDelete.has(toDepRef(d).id)),
           };
         }
         return t;
@@ -149,30 +178,17 @@ function rawProjectReducer(state: Project, action: ProjectAction): Project {
     }
 
     case 'UPDATE_TASK': {
-      const tasks = state.tasks.map(t => {
-        if (t.id !== action.id) return t;
-        const updated = { ...t, ...action.changes };
+      const tasks = state.tasks.map(t =>
+        t.id === action.id ? applyTaskChanges(t, action.changes, state.calendar) : t
+      );
+      return { ...state, tasks };
+    }
 
-        if (action.changes.duration !== undefined && !action.changes.endDate) {
-          updated.isMilestone = updated.duration === 0;
-          if (updated.isMilestone) {
-            updated.endDate = updated.startDate;
-          } else {
-            updated.endDate = addWorkingDays(updated.startDate, updated.duration, state.calendar);
-          }
-        } else if (action.changes.startDate !== undefined && !action.changes.endDate) {
-          if (updated.isMilestone) {
-            updated.endDate = updated.startDate;
-          } else {
-            updated.endDate = addWorkingDays(updated.startDate, updated.duration, state.calendar);
-          }
-        } else if (action.changes.endDate !== undefined && action.changes.startDate === undefined) {
-          updated.duration = countWorkingDays(updated.startDate, updated.endDate, state.calendar);
-          updated.isMilestone = updated.duration === 0;
-        }
-
-        return updated;
-      });
+    case 'UPDATE_TASKS': {
+      const ids = new Set(action.ids);
+      const tasks = state.tasks.map(t =>
+        ids.has(t.id) ? applyTaskChanges(t, action.changes, state.calendar) : t
+      );
       return { ...state, tasks };
     }
 
@@ -411,31 +427,46 @@ function updateParentTasks(tasks: Task[], calendar: Calendar): Task[] {
   
   if (parentIds.size === 0) return tasks;
 
-  const memo = new Map<string, { startDate: string; endDate: string; duration: number }>();
+  const memo = new Map<string, { startDate: string; endDate: string; duration: number; progress: number }>();
 
-  function resolve(parentId: string): { startDate: string; endDate: string; duration: number } {
+  function resolve(parentId: string): { startDate: string; endDate: string; duration: number; progress: number } {
     if (memo.has(parentId)) return memo.get(parentId)!;
 
     const children = tasks.filter(t => t.parentId === parentId);
     let earliestStart = '';
     let latestEnd = '';
+    let weightedProgress = 0;
+    let totalWeight = 0;
+    let progressSum = 0;
 
     for (const child of children) {
       let start = child.startDate;
       let end = child.endDate;
+      let childDuration = child.duration;
+      let childProgress = child.progress;
 
       if (parentIds.has(child.id)) {
         const resolvedChild = resolve(child.id);
         start = resolvedChild.startDate;
         end = resolvedChild.endDate;
+        childDuration = resolvedChild.duration;
+        childProgress = resolvedChild.progress;
       }
 
       if (!earliestStart || start < earliestStart) earliestStart = start;
       if (!latestEnd || end > latestEnd) latestEnd = end;
+
+      weightedProgress += childDuration * childProgress;
+      totalWeight += childDuration;
+      progressSum += childProgress;
     }
 
     const duration = earliestStart && latestEnd ? countWorkingDays(earliestStart, latestEnd, calendar) : 0;
-    const res = { startDate: earliestStart, endDate: latestEnd, duration };
+    // 期間加重平均（マイルストーンのみの場合は単純平均）
+    const progress = totalWeight > 0
+      ? Math.round(weightedProgress / totalWeight)
+      : children.length > 0 ? Math.round(progressSum / children.length) : 0;
+    const res = { startDate: earliestStart, endDate: latestEnd, duration, progress };
     memo.set(parentId, res);
     return res;
   }
@@ -452,6 +483,7 @@ function updateParentTasks(tasks: Task[], calendar: Calendar): Task[] {
           t.startDate === resolved.startDate &&
           t.endDate === resolved.endDate &&
           t.duration === resolved.duration &&
+          t.progress === resolved.progress &&
           !t.isMilestone
         ) {
           return t;
@@ -461,6 +493,7 @@ function updateParentTasks(tasks: Task[], calendar: Calendar): Task[] {
           startDate: resolved.startDate,
           endDate: resolved.endDate,
           duration: resolved.duration,
+          progress: resolved.progress,
           isMilestone: false,
         };
       }
@@ -472,10 +505,16 @@ function updateParentTasks(tasks: Task[], calendar: Calendar): Task[] {
 function projectReducer(state: Project, action: ProjectAction): Project {
   const nextState = rawProjectReducer(state, action);
   if (nextState === state) return state;
-  return {
-    ...nextState,
-    tasks: updateParentTasks(nextState.tasks, nextState.calendar),
-  };
+
+  let tasks = nextState.tasks;
+  if (nextState.autoSchedule) {
+    // 依存制約を満たすよう後送り → 親を再集約（リーフが動くと親の期間も変わる）
+    tasks = updateParentTasks(scheduleProject(updateParentTasks(tasks, nextState.calendar), nextState.calendar), nextState.calendar);
+  } else {
+    tasks = updateParentTasks(tasks, nextState.calendar);
+  }
+
+  return { ...nextState, tasks };
 }
 
 function findLastIndex(tasks: Task[], taskId: string): number {
@@ -543,19 +582,32 @@ interface ProjectContextValue {
   setSelectedTaskId: (id: string | null) => void;
   viewMode: 'day' | 'week' | 'month';
   setViewMode: (mode: 'day' | 'week' | 'month') => void;
+  showCriticalPath: boolean;
+  setShowCriticalPath: React.Dispatch<React.SetStateAction<boolean>>;
+  filterText: string;
+  setFilterText: React.Dispatch<React.SetStateAction<string>>;
   undo: () => void;
   canUndo: boolean;
+  redo: () => void;
+  canRedo: boolean;
   copyTask: (id: string) => void;
   cutTask: (id: string) => void;
   pasteTask: () => void;
   canPaste: boolean;
+  // 複数プロジェクト管理
+  projectList: ProjectMeta[];
+  activeProjectId: string;
+  switchProject: (id: string) => void;
+  createProject: () => void;
+  duplicateProject: () => void;
+  deleteProject: (id: string) => void;
 }
 
 const ProjectContext = createContext<ProjectContextValue | null>(null);
 
 export function ProjectProvider({ children }: { children: ReactNode }) {
-  const [history, setHistory] = useState<{ past: Project[]; present: Project }>(() => {
-    return { past: [], present: createDefaultProject() };
+  const [history, setHistory] = useState<{ past: Project[]; present: Project; future: Project[] }>(() => {
+    return { past: [], present: createDefaultProject(), future: [] };
   });
   const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
   const selectedTaskId = selectedTaskIds.length > 0 ? selectedTaskIds[selectedTaskIds.length - 1] : null;
@@ -563,8 +615,14 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     setSelectedTaskIds(id ? [id] : []);
   }, []);
   const [viewMode, setViewMode] = useState<'day' | 'week' | 'month'>('day');
+  const [showCriticalPath, setShowCriticalPath] = useState(false);
+  const [filterText, setFilterText] = useState('');
   const [clipboard, setClipboard] = useState<ClipboardContent | null>(null);
+  const [projectList, setProjectList] = useState<ProjectMeta[]>([]);
+  const [activeProjectId, setActiveProjectId] = useState<string>('');
   const loaded = useRef(false);
+  const activeIdRef = useRef('');
+  activeIdRef.current = activeProjectId;
 
   const project = history.present;
 
@@ -573,6 +631,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       setHistory({
         past: [],
         present: action.project,
+        future: [],
       });
       return;
     }
@@ -584,6 +643,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       return {
         past: [...curr.past, curr.present],
         present: nextPresent,
+        future: [],
       };
     });
   }, []);
@@ -592,15 +652,28 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     setHistory(curr => {
       if (curr.past.length === 0) return curr;
       const previous = curr.past[curr.past.length - 1];
-      const newPast = curr.past.slice(0, curr.past.length - 1);
       return {
-        past: newPast,
+        past: curr.past.slice(0, curr.past.length - 1),
         present: previous,
+        future: [curr.present, ...curr.future],
+      };
+    });
+  }, []);
+
+  const redo = useCallback(() => {
+    setHistory(curr => {
+      if (curr.future.length === 0) return curr;
+      const [next, ...restFuture] = curr.future;
+      return {
+        past: [...curr.past, curr.present],
+        present: next,
+        future: restFuture,
       };
     });
   }, []);
 
   const canUndo = history.past.length > 0;
+  const canRedo = history.future.length > 0;
 
   const copyTask = useCallback((id: string) => {
     const task = project.tasks.find(t => t.id === id);
@@ -679,23 +752,117 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
   const canPaste = clipboard !== null;
 
+  const projectRef = useRef(project);
+  projectRef.current = project;
+  const listRef = useRef(projectList);
+  listRef.current = projectList;
+
+  // 初回ロード（必要なら旧単一スロットからマイグレーション）
   useEffect(() => {
     if (loaded.current) return;
     loaded.current = true;
-    loadFromIndexedDB().then(saved => {
-      if (saved) {
-        dispatch({ type: 'LOAD_PROJECT', project: saved });
+    (async () => {
+      let registry = await loadRegistry();
+      if (!registry) {
+        const legacy = await loadLegacyProject();
+        const id = genProjectId();
+        const proj = legacy ?? createDefaultProject();
+        await saveProjectById(id, proj);
+        registry = { activeId: id, projects: [{ id, name: proj.name, updatedAt: Date.now() }] };
+        await saveRegistry(registry);
+        if (legacy) await deleteLegacyProject();
+        setProjectList(registry.projects);
+        setActiveProjectId(id);
+        dispatch({ type: 'LOAD_PROJECT', project: proj });
+        return;
       }
+      const active = await loadProjectById(registry.activeId);
+      setProjectList(registry.projects);
+      setActiveProjectId(registry.activeId);
+      if (active) dispatch({ type: 'LOAD_PROJECT', project: active });
+    })();
+  }, [dispatch]);
+
+  // アクティブプロジェクトの自動保存（デバウンス）＋レジストリ名同期
+  useEffect(() => {
+    if (!loaded.current || !activeProjectId) return;
+    const timer = setTimeout(() => {
+      void saveProjectById(activeProjectId, project);
+      setProjectList(prev => {
+        const next = prev.map(p =>
+          p.id === activeProjectId ? { ...p, name: project.name, updatedAt: Date.now() } : p
+        );
+        void saveRegistry({ activeId: activeProjectId, projects: next });
+        return next;
+      });
+      // 10分バケットのスナップショットを更新（最大20世代）
+      void loadSnapshots(activeProjectId).then(snaps => {
+        saveSnapshots(activeProjectId, pushSnapshot(snaps, project, Date.now()));
+      });
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [project, activeProjectId]);
+
+  const switchProject = useCallback((id: string) => {
+    if (id === activeIdRef.current) return;
+    void saveProjectById(activeIdRef.current, projectRef.current);
+    loadProjectById(id).then(p => {
+      if (!p) return;
+      setActiveProjectId(id);
+      setSelectedTaskIds([]);
+      dispatch({ type: 'LOAD_PROJECT', project: p });
+      void saveRegistry({ activeId: id, projects: listRef.current });
     });
   }, [dispatch]);
 
-  useEffect(() => {
-    if (!loaded.current) return;
-    const timer = setTimeout(() => {
-      saveToIndexedDB(project);
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [project]);
+  const createProject = useCallback(() => {
+    if (activeIdRef.current) void saveProjectById(activeIdRef.current, projectRef.current);
+    const id = genProjectId();
+    const proj = createDefaultProject();
+    void saveProjectById(id, proj);
+    const next = [...listRef.current, { id, name: proj.name, updatedAt: Date.now() }];
+    setProjectList(next);
+    setActiveProjectId(id);
+    setSelectedTaskIds([]);
+    dispatch({ type: 'LOAD_PROJECT', project: proj });
+    void saveRegistry({ activeId: id, projects: next });
+  }, [dispatch]);
+
+  const duplicateProject = useCallback(() => {
+    if (activeIdRef.current) void saveProjectById(activeIdRef.current, projectRef.current);
+    const id = genProjectId();
+    const src = projectRef.current;
+    const proj: Project = { ...src, name: `${src.name} のコピー` };
+    void saveProjectById(id, proj);
+    const next = [...listRef.current, { id, name: proj.name, updatedAt: Date.now() }];
+    setProjectList(next);
+    setActiveProjectId(id);
+    setSelectedTaskIds([]);
+    dispatch({ type: 'LOAD_PROJECT', project: proj });
+    void saveRegistry({ activeId: id, projects: next });
+  }, [dispatch]);
+
+  const deleteProject = useCallback((id: string) => {
+    const list = listRef.current;
+    if (list.length <= 1) {
+      alert('最後のプロジェクトは削除できません。');
+      return;
+    }
+    const next = list.filter(p => p.id !== id);
+    void deleteProjectById(id);
+    void deleteSnapshots(id);
+    let activeId = activeIdRef.current;
+    if (id === activeId) {
+      activeId = next[0].id;
+      setActiveProjectId(activeId);
+      setSelectedTaskIds([]);
+      loadProjectById(activeId).then(p => {
+        if (p) dispatch({ type: 'LOAD_PROJECT', project: p });
+      });
+    }
+    setProjectList(next);
+    void saveRegistry({ activeId, projects: next });
+  }, [dispatch]);
 
   return (
     <ProjectContext.Provider
@@ -708,12 +875,24 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         setSelectedTaskId,
         viewMode,
         setViewMode,
+        showCriticalPath,
+        setShowCriticalPath,
+        filterText,
+        setFilterText,
         undo,
         canUndo,
+        redo,
+        canRedo,
         copyTask,
         cutTask,
         pasteTask,
         canPaste,
+        projectList,
+        activeProjectId,
+        switchProject,
+        createProject,
+        duplicateProject,
+        deleteProject,
       }}
     >
       {children}

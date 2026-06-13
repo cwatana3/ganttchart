@@ -3,19 +3,30 @@ import { Toolbar } from './components/Toolbar/Toolbar';
 import { TaskTable } from './components/TaskTable/TaskTable';
 import { GanttView } from './components/GanttView/GanttView';
 import { CalendarSettings } from './components/CalendarSettings/CalendarSettings';
+import { ExportDialog } from './components/ExportDialog/ExportDialog';
+import { BackupDialog } from './components/BackupDialog/BackupDialog';
 import { SplitPane } from './components/SplitPane/SplitPane';
 import { StatusBar } from './components/StatusBar/StatusBar';
 import { ContextMenu } from './components/ContextMenu/ContextMenu';
 import { useProject } from './store/ProjectContext';
-import { canIndent, canOutdent } from './utils/taskTree';
+import { canIndent, canOutdent, getFilteredVisibleTasks } from './utils/taskTree';
 import styles from './App.module.css';
+
+const BAR_COLORS: (string | null)[] = [
+  '#ef4444', '#f59e0b', '#10b981', '#14b8a6',
+  '#3b82f6', '#8b5cf6', '#ec4899', '#64748b',
+  null,
+];
 
 export function App() {
   const [showCalendar, setShowCalendar] = useState(false);
+  const [showExport, setShowExport] = useState(false);
+  const [showBackup, setShowBackup] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; taskId: string | null } | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const ganttRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const scrollToTodayRef = useRef<(() => void) | null>(null);
 
   const {
     project,
@@ -26,10 +37,13 @@ export function App() {
     dispatch,
     undo,
     canUndo,
+    redo,
+    canRedo,
     copyTask,
     cutTask,
     pasteTask,
     canPaste,
+    filterText,
   } = useProject();
 
   useEffect(() => {
@@ -45,11 +59,17 @@ export function App() {
         return;
       }
 
-      // 1. Undo: Ctrl + Z
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+      // 1. Undo: Ctrl + Z / Redo: Ctrl + Y or Ctrl + Shift + Z
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
         e.preventDefault();
         if (canUndo) {
           undo();
+        }
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) {
+        e.preventDefault();
+        if (canRedo) {
+          redo();
         }
       }
 
@@ -85,6 +105,38 @@ export function App() {
           setSelectedTaskIds([]);
         }
       }
+
+      // 6. Enter: add a task right below the selection
+      if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && selectedTaskId) {
+        e.preventDefault();
+        const task = project.tasks.find(t => t.id === selectedTaskId);
+        dispatch({ type: 'ADD_TASK', parentId: task ? task.parentId : null, afterId: selectedTaskId });
+      }
+
+      // 7. Tab / Shift+Tab: indent / outdent
+      if (e.key === 'Tab' && selectedTaskId) {
+        e.preventDefault();
+        if (e.shiftKey) {
+          if (canOutdent(selectedTaskId, project.tasks)) {
+            dispatch({ type: 'OUTDENT_TASK', id: selectedTaskId });
+          }
+        } else if (canIndent(selectedTaskId, project.tasks)) {
+          dispatch({ type: 'INDENT_TASK', id: selectedTaskId });
+        }
+      }
+
+      // 8. ArrowUp / ArrowDown: move selection
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        const visible = getFilteredVisibleTasks(project.tasks, filterText);
+        if (visible.length > 0) {
+          e.preventDefault();
+          const idx = selectedTaskId ? visible.findIndex(t => t.id === selectedTaskId) : -1;
+          const nextIdx = e.key === 'ArrowDown'
+            ? Math.min(visible.length - 1, idx + 1)
+            : Math.max(0, idx === -1 ? 0 : idx - 1);
+          setSelectedTaskId(visible[nextIdx].id);
+        }
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -93,13 +145,18 @@ export function App() {
     selectedTaskIds,
     setSelectedTaskIds,
     selectedTaskId,
+    setSelectedTaskId,
+    project.tasks,
     dispatch,
     undo,
     canUndo,
+    redo,
+    canRedo,
     copyTask,
     cutTask,
     pasteTask,
     canPaste,
+    filterText,
   ]);
 
   // Context Menu event handler
@@ -182,6 +239,15 @@ export function App() {
         },
         { label: '-' },
         {
+          label: '🎨 バーの色',
+          swatches: BAR_COLORS,
+          onPickSwatch: (color: string | null) => {
+            const ids = selectedTaskIds.includes(taskId) ? selectedTaskIds : [taskId];
+            dispatch({ type: 'UPDATE_TASKS', ids, changes: { color: color ?? undefined } });
+          },
+        },
+        { label: '-' },
+        {
           label: '📋 コピー (Ctrl+C)',
           onClick: () => copyTask(taskId),
         },
@@ -243,15 +309,24 @@ export function App() {
     <div className={styles.app}>
       <Toolbar
         onOpenCalendar={() => setShowCalendar(true)}
+        onOpenExport={() => setShowExport(true)}
+        onOpenBackup={() => setShowBackup(true)}
+        onToday={() => scrollToTodayRef.current?.()}
       />
       <SplitPane
         left={<TaskTable />}
-        right={<GanttView svgRef={svgRef} wrapperRef={ganttRef} scrollRef={scrollRef} />}
+        right={<GanttView svgRef={svgRef} wrapperRef={ganttRef} scrollRef={scrollRef} scrollToTodayRef={scrollToTodayRef} />}
         scrollRef={scrollRef}
       />
       <StatusBar />
       {showCalendar && (
         <CalendarSettings onClose={() => setShowCalendar(false)} />
+      )}
+      {showExport && (
+        <ExportDialog onClose={() => setShowExport(false)} />
+      )}
+      {showBackup && (
+        <BackupDialog onClose={() => setShowBackup(false)} />
       )}
       {contextMenu && (
         <ContextMenu

@@ -1,20 +1,38 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useProject } from '../../store/ProjectContext';
-import { getVisibleTasks, getDepth, getDescendants } from '../../utils/taskTree';
+import { getFilteredVisibleTasks, getDepth, getDescendants, getWbsMap } from '../../utils/taskTree';
+import { formatDeps } from '../../utils/deps';
 import { TaskRow } from './TaskRow';
 import styles from './TaskTable.module.css';
 
 const MIN_COL_WIDTH = 40;
 const STORAGE_KEY = 'gannt-column-widths';
 
-interface ColWidths {
+export interface ColWidths {
+  rowNum: number;
+  wbs: number;
   name: number;
   duration: number;
   startDate: number;
   endDate: number;
+  progress: number;
   assignee: number;
   dependencies: number;
+  notes: number;
 }
+
+const COLUMNS: { key: keyof ColWidths; label: string }[] = [
+  { key: 'rowNum', label: '#' },
+  { key: 'wbs', label: 'WBS' },
+  { key: 'name', label: 'タスク名' },
+  { key: 'duration', label: '期間' },
+  { key: 'startDate', label: '開始日' },
+  { key: 'endDate', label: '終了日' },
+  { key: 'progress', label: '進捗' },
+  { key: 'assignee', label: '担当者' },
+  { key: 'dependencies', label: '先行' },
+  { key: 'notes', label: 'メモ' },
+];
 
 function loadManualWidths(): Partial<ColWidths> {
   try {
@@ -51,7 +69,7 @@ function measureTextWidth(text: string, fontSize: number, fontFamily: string = '
 }
 
 export function TaskTable() {
-  const { project, dispatch, selectedTaskIds, setSelectedTaskIds } = useProject();
+  const { project, dispatch, selectedTaskIds, setSelectedTaskIds, filterText } = useProject();
   const [draggedIds, setDraggedIds] = useState<string[]>([]);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const [dropPosition, setDropPosition] = useState<'before' | 'after' | 'inside'>('after');
@@ -61,79 +79,110 @@ export function TaskTable() {
   const resizeStartXRef = useRef(0);
   const resizeStartWidthRef = useRef(0);
   const tableRef = useRef<HTMLTableElement>(null);
-  const visibleTasks = getVisibleTasks(project.tasks);
+  const visibleTasks = getFilteredVisibleTasks(project.tasks, filterText);
+
+  const rowNumMap = useMemo(
+    () => new Map(project.tasks.map((t, i) => [t.id, i + 1])),
+    [project.tasks],
+  );
+  const wbsMap = useMemo(() => getWbsMap(project.tasks), [project.tasks]);
 
   const effectiveColWidths = useMemo((): ColWidths => {
-    // 1. Name column auto-width
-    let autoName = measureTextWidth('タスク名', 11.5, 'var(--font-header)', '700');
+    const headerW = (label: string) => measureTextWidth(label, 11.5, 'var(--font-header)', '700');
+    const bodyW = (text: string) => measureTextWidth(text, 13, 'var(--font-body)', 'normal');
+
+    // 1. Row number column
+    let autoRowNum = headerW('#');
+    autoRowNum = Math.max(autoRowNum, bodyW(String(project.tasks.length)));
+    autoRowNum = Math.max(36, autoRowNum + 24);
+
+    // 2. WBS column
+    let autoWbs = headerW('WBS');
+    for (const task of visibleTasks) {
+      autoWbs = Math.max(autoWbs, bodyW(wbsMap.get(task.id) ?? ''));
+    }
+    autoWbs = Math.max(44, autoWbs + 24);
+
+    // 3. Name column (indent + toggle + milestone icon aware)
+    let autoName = headerW('タスク名');
     for (const task of visibleTasks) {
       const depth = getDepth(task.id, project.tasks);
       const hasChildren = project.tasks.some(t => t.parentId === task.id);
-      
-      const nameW = measureTextWidth(task.name, 13, 'var(--font-body)', 'normal');
+
+      const nameW = bodyW(task.name);
       const indentW = depth * 16;
       const toggleW = hasChildren ? 24 : 18;
       const milestoneW = task.isMilestone ? 24 : 0;
-      
-      const totalW = nameW + indentW + toggleW + milestoneW;
-      autoName = Math.max(autoName, totalW);
+
+      autoName = Math.max(autoName, nameW + indentW + toggleW + milestoneW);
     }
     autoName = Math.min(500, Math.max(120, autoName + 24 + 6)); // padding (24) + buffer (6)
 
-    // 2. Duration column auto-width
-    let autoDuration = measureTextWidth('期間', 11.5, 'var(--font-header)', '700');
+    // 4. Duration column
+    let autoDuration = headerW('期間');
     for (const task of visibleTasks) {
-      const text = `${task.duration}日`;
-      autoDuration = Math.max(autoDuration, measureTextWidth(text, 13, 'var(--font-body)', 'normal'));
+      autoDuration = Math.max(autoDuration, bodyW(`${task.duration}日`));
     }
     autoDuration = Math.max(60, autoDuration + 24 + 6);
 
-    // 3. StartDate column auto-width
-    let autoStart = measureTextWidth('開始日', 11.5, 'var(--font-header)', '700');
+    // 5. StartDate column
+    let autoStart = headerW('開始日');
     for (const task of visibleTasks) {
-      autoStart = Math.max(autoStart, measureTextWidth(task.startDate, 13, 'var(--font-body)', 'normal'));
+      autoStart = Math.max(autoStart, bodyW(task.startDate));
     }
     autoStart = Math.max(80, autoStart + 24 + 6);
 
-    // 4. EndDate column auto-width
-    let autoEnd = measureTextWidth('終了日', 11.5, 'var(--font-header)', '700');
+    // 6. EndDate column
+    let autoEnd = headerW('終了日');
     for (const task of visibleTasks) {
-      autoEnd = Math.max(autoEnd, measureTextWidth(task.endDate, 13, 'var(--font-body)', 'normal'));
+      autoEnd = Math.max(autoEnd, bodyW(task.endDate));
     }
     autoEnd = Math.max(80, autoEnd + 24 + 6);
 
-    // 5. Assignee column auto-width
-    let autoAssignee = measureTextWidth('担当者', 11.5, 'var(--font-header)', '700');
+    // 7. Progress column
+    let autoProgress = headerW('進捗');
+    autoProgress = Math.max(autoProgress, bodyW('100%'));
+    autoProgress = Math.max(56, autoProgress + 24);
+
+    // 8. Assignee column
+    let autoAssignee = headerW('担当者');
     for (const task of visibleTasks) {
-      autoAssignee = Math.max(autoAssignee, measureTextWidth(task.assignee || '-', 13, 'var(--font-body)', 'normal'));
+      autoAssignee = Math.max(autoAssignee, bodyW(task.assignee || '-'));
     }
     autoAssignee = Math.max(80, autoAssignee + 24 + 6);
 
-    // 6. Predecessor column auto-width
-    let autoDeps = measureTextWidth('先行', 11.5, 'var(--font-header)', '700');
+    // 9. Predecessor column
+    let autoDeps = headerW('先行');
     for (const task of visibleTasks) {
-      if (task.dependencies && task.dependencies.length > 0) {
-        const indices = task.dependencies
-          .map(dId => {
-            const idx = project.tasks.findIndex(t => t.id === dId);
-            return idx !== -1 ? String(idx + 1) : '';
-          })
-          .filter(Boolean);
-        const text = indices.join(', ');
-        autoDeps = Math.max(autoDeps, measureTextWidth(text, 13, 'var(--font-body)', 'normal'));
+      const text = formatDeps(task, project.tasks);
+      if (text) {
+        autoDeps = Math.max(autoDeps, bodyW(text));
       }
     }
     autoDeps = Math.max(60, autoDeps + 24 + 6);
 
+    // 10. Notes column (cap so long notes don't blow up the layout)
+    let autoNotes = headerW('メモ');
+    for (const task of visibleTasks) {
+      if (task.notes) {
+        autoNotes = Math.max(autoNotes, bodyW(task.notes));
+      }
+    }
+    autoNotes = Math.min(240, Math.max(60, autoNotes + 24 + 6));
+
     return {
+      rowNum: manualWidths.rowNum ?? autoRowNum,
+      wbs: manualWidths.wbs ?? autoWbs,
       name: manualWidths.name ?? autoName,
       duration: manualWidths.duration ?? autoDuration,
       startDate: manualWidths.startDate ?? autoStart,
       endDate: manualWidths.endDate ?? autoEnd,
+      progress: manualWidths.progress ?? autoProgress,
       assignee: manualWidths.assignee ?? autoAssignee,
       dependencies: manualWidths.dependencies ?? autoDeps,
+      notes: manualWidths.notes ?? autoNotes,
     };
-  }, [visibleTasks, project.tasks, manualWidths]);
+  }, [visibleTasks, project.tasks, manualWidths, wbsMap]);
 
   const handleSelect = useCallback((id: string, ctrlKey: boolean, shiftKey: boolean) => {
     if (shiftKey && lastClickedId) {
@@ -272,84 +321,22 @@ export function TaskTable() {
     <table className={styles.table} ref={tableRef}>
       <thead>
         <tr className={styles.headerRow}>
-          <th
-            className={styles.headerCell}
-            data-col="name"
-            style={getColStyle('name')}
-            onDoubleClick={() => resetColumnWidth('name')}
-            title="ダブルクリックで自動調整"
-          >
-            タスク名
-            <span
-              className={styles.resizeHandle}
-              onMouseDown={(e) => startResize('name', e)}
-            />
-          </th>
-          <th
-            className={styles.headerCell}
-            data-col="duration"
-            style={getColStyle('duration')}
-            onDoubleClick={() => resetColumnWidth('duration')}
-            title="ダブルクリックで自動調整"
-          >
-            期間
-            <span
-              className={styles.resizeHandle}
-              onMouseDown={(e) => startResize('duration', e)}
-            />
-          </th>
-          <th
-            className={styles.headerCell}
-            data-col="startDate"
-            style={getColStyle('startDate')}
-            onDoubleClick={() => resetColumnWidth('startDate')}
-            title="ダブルクリックで自動調整"
-          >
-            開始日
-            <span
-              className={styles.resizeHandle}
-              onMouseDown={(e) => startResize('startDate', e)}
-            />
-          </th>
-          <th
-            className={styles.headerCell}
-            data-col="endDate"
-            style={getColStyle('endDate')}
-            onDoubleClick={() => resetColumnWidth('endDate')}
-            title="ダブルクリックで自動調整"
-          >
-            終了日
-            <span
-              className={styles.resizeHandle}
-              onMouseDown={(e) => startResize('endDate', e)}
-            />
-          </th>
-          <th
-            className={styles.headerCell}
-            data-col="assignee"
-            style={getColStyle('assignee')}
-            onDoubleClick={() => resetColumnWidth('assignee')}
-            title="ダブルクリックで自動調整"
-          >
-            担当者
-            <span
-              className={styles.resizeHandle}
-              onMouseDown={(e) => startResize('assignee', e)}
-            />
-          </th>
-          <th
-            className={styles.headerCell}
-            data-col="dependencies"
-            style={getColStyle('dependencies')}
-            onDoubleClick={() => resetColumnWidth('dependencies')}
-            title="ダブルクリックで自動調整"
-          >
-            先行
-            <span
-              className={styles.resizeHandle}
-              onMouseDown={(e) => startResize('dependencies', e)}
-            />
-          </th>
+          {COLUMNS.map(col => (
+            <th
+              key={col.key}
+              className={styles.headerCell}
+              data-col={col.key}
+              style={getColStyle(col.key)}
+              onDoubleClick={() => resetColumnWidth(col.key)}
+              title="ダブルクリックで自動調整"
+            >
+              {col.label}
+              <span
+                className={styles.resizeHandle}
+                onMouseDown={(e) => startResize(col.key, e)}
+              />
+            </th>
+          ))}
         </tr>
       </thead>
       <tbody>
@@ -362,6 +349,8 @@ export function TaskTable() {
             <TaskRow
               key={task.id}
               task={task}
+              rowNumber={rowNumMap.get(task.id) ?? 0}
+              wbs={wbsMap.get(task.id) ?? ''}
               isSelected={selectedTaskIds.includes(task.id)}
               isDragged={draggedIds.includes(task.id)}
               showDropBefore={showDropBefore}
@@ -379,7 +368,7 @@ export function TaskTable() {
         })}
       </tbody>
       <tfoot>
-        <tr style={{ height: 50 }}><td colSpan={6} /></tr>
+        <tr style={{ height: 50 }}><td colSpan={COLUMNS.length} /></tr>
       </tfoot>
     </table>
   );

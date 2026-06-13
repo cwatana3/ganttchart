@@ -92,6 +92,17 @@
   cursor: grabbing;
 }
 
+.progressFill {
+  fill: rgba(0, 0, 0, 0.28);
+  pointer-events: none;
+}
+
+.baselineBar {
+  fill: #94a3b8;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
 .dependencyLine {
   fill: none;
   stroke: var(--accent-color);
@@ -104,6 +115,25 @@
 .dependencyLine:hover {
   opacity: 0.9;
   stroke-width: 2px;
+}
+
+.dependencyLineViolated {
+  stroke: #ef4444;
+  opacity: 0.85;
+  stroke-dasharray: 5 3;
+}
+
+.depGroup:hover .dependencyLine {
+  opacity: 0.95;
+  stroke-width: 2.5px;
+}
+
+.depHitArea {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 10px;
+  pointer-events: stroke;
+  cursor: pointer;
 }
 
 .linkingLine {

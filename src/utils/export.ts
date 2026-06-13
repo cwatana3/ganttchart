@@ -2,8 +2,12 @@ import type { Project, Task } from '../types';
 import {
   getVisibleTasks,
   getDepth,
+  getWbsMap,
 } from './taskTree';
 import { toDate, fromDate } from './calendar';
+import { formatDeps, depRefs } from './deps';
+import { isDepViolated, criticalTaskIds } from './schedule';
+import { darken } from './color';
 import { addDays, differenceInCalendarDays } from 'date-fns';
 
 export function exportToJSON(project: Project): void {
@@ -169,11 +173,25 @@ interface ColSpec {
   label: string;
   getValue: (task: Task) => string;
   fontSize: number;
+  color?: string;
 }
 
 function getColSpecs(C: Colors, tasks: Task[]): { specs: ColSpec[]; colColor: string } {
+  const wbsMap = getWbsMap(tasks);
   return {
     specs: [
+      {
+        key: 'rowNum', label: '#',
+        getValue: (t) => String(tasks.findIndex(x => x.id === t.id) + 1),
+        fontSize: 12,
+        color: C.textMuted,
+      },
+      {
+        key: 'wbs', label: 'WBS',
+        getValue: (t) => wbsMap.get(t.id) ?? '',
+        fontSize: 12,
+        color: C.textMuted,
+      },
       {
         key: 'name', label: 'タスク名',
         getValue: (t) => t.name,
@@ -195,19 +213,23 @@ function getColSpecs(C: Colors, tasks: Task[]): { specs: ColSpec[]; colColor: st
         fontSize: 12,
       },
       {
+        key: 'progress', label: '進捗',
+        getValue: (t) => `${t.progress}%`,
+        fontSize: 12,
+      },
+      {
         key: 'assignee', label: '担当者',
         getValue: (t) => t.assignee || '-',
         fontSize: 12,
       },
       {
         key: 'dependencies', label: '先行',
-        getValue: (t) => (t.dependencies ?? [])
-          .map(dId => {
-            const idx = tasks.findIndex(x => x.id === dId);
-            return idx !== -1 ? String(idx + 1) : '';
-          })
-          .filter(Boolean)
-          .join(', ') || '-',
+        getValue: (t) => formatDeps(t, tasks) || '-',
+        fontSize: 12,
+      },
+      {
+        key: 'notes', label: 'メモ',
+        getValue: (t) => t.notes || '-',
         fontSize: 12,
       },
     ],
@@ -248,10 +270,17 @@ function computeColWidths(tasks: Task[], specs: ColSpec[]): {
 
 // ─── export ────────────────────────────────────────────────────────
 
-export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' | 'week' | 'month' = 'day'): SVGSVGElement {
+export interface ExportDateRange {
+  start?: string;
+  end?: string;
+}
+
+export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' | 'week' | 'month' = 'day', showCriticalPath = false, dateRange?: ExportDateRange): SVGSVGElement {
   const C: Colors = light ? LIGHT : DARK;
   const visibleTasks = getVisibleTasks(project.tasks);
   const { specs, colColor } = getColSpecs(C, project.tasks);
+  const criticalIds = showCriticalPath ? criticalTaskIds(project.tasks, project.calendar) : new Set<string>();
+  const CRITICAL_STROKE = '#e11d48';
 
   // ─── date range & scaling ──────────────────────────────────
   const colWidth = viewMode === 'week' ? 8 : viewMode === 'month' ? 2 : 32;
@@ -299,6 +328,11 @@ export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' 
       minDate = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
     }
   }
+
+  // ユーザー指定の期間で上書き（カラム軸のみ。タスク行はそのまま表示）
+  if (dateRange?.start) minDate = toDate(dateRange.start);
+  if (dateRange?.end) maxDate = toDate(dateRange.end);
+  if (maxDate < minDate) maxDate = minDate;
 
   const totalDays = differenceInCalendarDays(maxDate, minDate) + 1;
   const chartW = totalDays * colWidth + PADDING_X * 2;
@@ -526,6 +560,21 @@ export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' 
   marker.appendChild(markerPath);
   defs.appendChild(marker);
 
+  // Violated-dependency arrow marker (solid red)
+  const markerV = svgEl('marker');
+  markerV.setAttribute('id', 'dependency-arrow-violated');
+  markerV.setAttribute('viewBox', '0 0 6 6');
+  markerV.setAttribute('refX', '6');
+  markerV.setAttribute('refY', '3');
+  markerV.setAttribute('markerWidth', '6');
+  markerV.setAttribute('markerHeight', '6');
+  markerV.setAttribute('orient', 'auto');
+  const markerVPath = svgEl('path');
+  markerVPath.setAttribute('d', 'M 0 0 L 6 3 L 0 6 z');
+  markerVPath.setAttribute('fill', '#ef4444');
+  markerV.appendChild(markerVPath);
+  defs.appendChild(markerV);
+
   svg.appendChild(defs);
 
   // ================================================================
@@ -554,7 +603,7 @@ export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' 
 
       if (spec.key === 'name') {
         // 1. Draw Icon / Chevron
-        const iconX = colStartX[0] + 12 + depth * 16 + 6;
+        const iconX = colStartX[c] + 12 + depth * 16 + 6;
         const iconY = rowY + ROW_H / 2;
         const hasChildren = project.tasks.some(t => t.parentId === task.id);
         
@@ -587,7 +636,7 @@ export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' 
         }
 
         // 2. Render name text
-        const textX = colStartX[0] + 12 + depth * 16 + 18;
+        const textX = colStartX[c] + 12 + depth * 16 + 18;
         const maxPx = colEndX[c] - textX - 8;
         const display = truncate(raw, maxPx, spec.fontSize);
         svg.appendChild(textEl(textX, rowMidY, display, colColor, { fontSize: spec.fontSize }));
@@ -595,7 +644,7 @@ export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' 
         if (!raw) continue;
         const maxPx = colEndX[c] - colStartX[c] - COL_PAD;
         const display = truncate(raw, maxPx, spec.fontSize);
-        svg.appendChild(textEl(colStartX[c] + 8, rowMidY, display, colColor, { fontSize: spec.fontSize }));
+        svg.appendChild(textEl(colStartX[c] + 8, rowMidY, display, spec.color ?? colColor, { fontSize: spec.fontSize }));
       }
     }
   }
@@ -683,16 +732,15 @@ export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' 
 
   // Draw dependency connection lines (solid color, no transparency)
   visibleTasks.forEach((task, succIdx) => {
-    if (!task.dependencies || task.dependencies.length === 0) return;
-    task.dependencies.forEach((predId) => {
-      const predIdx = visibleTasks.findIndex(t => t.id === predId);
+    depRefs(task).forEach((ref) => {
+      const predIdx = visibleTasks.findIndex(t => t.id === ref.id);
       if (predIdx === -1) return;
 
       const predTask = visibleTasks[predIdx];
-      const predX = getX(predTask.endDate);
+      const predX = ref.type[0] === 'F' ? getX(predTask.endDate) : getX(predTask.startDate);
       const predY = HEADER_H + predIdx * ROW_H + ROW_H / 2;
 
-      const succX = getX(task.startDate);
+      const succX = ref.type[1] === 'S' ? getX(task.startDate) : getX(task.endDate);
       const succY = HEADER_H + succIdx * ROW_H + ROW_H / 2;
 
       const startX = predX;
@@ -724,12 +772,14 @@ export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' 
         ].join(' ');
       }
 
+      const violated = isDepViolated(task, predTask, ref, project.calendar);
       const poly = svgEl('polyline');
       poly.setAttribute('points', points);
       poly.setAttribute('fill', 'none');
-      poly.setAttribute('stroke', C.accent);
+      poly.setAttribute('stroke', violated ? '#ef4444' : C.accent);
       poly.setAttribute('stroke-width', '1.5');
-      poly.setAttribute('marker-end', 'url(#dependency-arrow)');
+      if (violated) poly.setAttribute('stroke-dasharray', '5 3');
+      poly.setAttribute('marker-end', violated ? 'url(#dependency-arrow-violated)' : 'url(#dependency-arrow)');
       chart.appendChild(poly);
     });
   });
@@ -741,6 +791,17 @@ export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' 
     const x2 = getX(task.endDate);
     const w = Math.max(4, x2 - x1);
     const isSummary = project.tasks.some(t => t.parentId === task.id);
+    const isCritical = criticalIds.has(task.id);
+
+    // Baseline (planned) bar beneath the task bar — solid color (no transparency)
+    const base = project.baseline?.[task.id];
+    if (base) {
+      const bx1 = getX(base.startDate);
+      const bx2 = getX(base.endDate);
+      const bw = Math.max(3, bx2 - bx1);
+      const baseRect = rectEl(bx1, barY + BAR_H + 2, bw, 3, '#94a3b8', undefined, 1);
+      chart.appendChild(baseRect);
+    }
 
     if (task.isMilestone) {
       const cx = x1 + colWidth / 2;
@@ -748,9 +809,9 @@ export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' 
       const pts = `${cx},${cy - MSIZE} ${cx + MSIZE},${cy} ${cx},${cy + MSIZE} ${cx - MSIZE},${cy}`;
       const poly = svgEl('polygon');
       poly.setAttribute('points', pts);
-      poly.setAttribute('fill', 'url(#milestone-gradient)');
-      poly.setAttribute('stroke', C.milestoneStroke);
-      poly.setAttribute('stroke-width', '1');
+      poly.setAttribute('fill', task.color ?? 'url(#milestone-gradient)');
+      poly.setAttribute('stroke', isCritical ? CRITICAL_STROKE : task.color ? darken(task.color, 0.7) : C.milestoneStroke);
+      poly.setAttribute('stroke-width', isCritical ? '2.5' : '1');
       chart.appendChild(poly);
     } else if (isSummary) {
         const dPath = [
@@ -765,24 +826,108 @@ export function buildGanttSvg(project: Project, light: boolean, viewMode: 'day' 
       const path = svgEl('path');
       path.setAttribute('d', dPath);
       path.setAttribute('fill', 'url(#summary-gradient)');
-      path.setAttribute('stroke', C.summaryBarStroke);
-      path.setAttribute('stroke-width', '1');
+      path.setAttribute('stroke', isCritical ? CRITICAL_STROKE : C.summaryBarStroke);
+      path.setAttribute('stroke-width', isCritical ? '2.5' : '1');
       chart.appendChild(path);
     } else {
-      const rect = rectEl(x1, barY, w, BAR_H, 'url(#task-gradient)', C.taskBarStroke, 3);
-      rect.setAttribute('stroke-width', '1');
+      const rect = rectEl(
+        x1, barY, w, BAR_H,
+        task.color ?? 'url(#task-gradient)',
+        isCritical ? CRITICAL_STROKE : task.color ? darken(task.color, 0.7) : C.taskBarStroke,
+        3,
+      );
+      rect.setAttribute('stroke-width', isCritical ? '2.5' : '1');
       chart.appendChild(rect);
+
+      // Progress fill (solid color blend — no transparency allowed in export)
+      const prog = Math.max(0, Math.min(100, task.progress ?? 0));
+      if (prog > 0) {
+        const doneColor = darken(task.color ?? C.taskBar, 0.72);
+        chart.appendChild(rectEl(x1, barY, w * prog / 100, BAR_H, doneColor, undefined, 3));
+      }
     }
   }
 
   return svg;
 }
 
-export function exportToSVG(project: Project, light: boolean, viewMode: 'day' | 'week' | 'month' = 'day'): void {
-  const svg = buildGanttSvg(project, light, viewMode);
+export function exportToSVG(project: Project, light: boolean, viewMode: 'day' | 'week' | 'month' = 'day', showCriticalPath = false, dateRange?: ExportDateRange): void {
+  const svg = buildGanttSvg(project, light, viewMode, showCriticalPath, dateRange);
   const svgString = new XMLSerializer().serializeToString(svg);
   const blob = new Blob([svgString], { type: 'image/svg+xml' });
   downloadBlob(blob, `${project.name}.svg`);
+}
+
+function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('SVG画像の読み込みに失敗しました'));
+    img.src = url;
+  });
+}
+
+/** ガントを高解像度 PNG にラスタライズしてダウンロードする */
+export async function exportToPNG(
+  project: Project,
+  light: boolean,
+  viewMode: 'day' | 'week' | 'month' = 'day',
+  showCriticalPath = false,
+  scale = 2,
+  dateRange?: ExportDateRange,
+): Promise<void> {
+  const svg = buildGanttSvg(project, light, viewMode, showCriticalPath, dateRange);
+  const width = Number(svg.getAttribute('width')) || 800;
+  const height = Number(svg.getAttribute('height')) || 600;
+  const svgString = new XMLSerializer().serializeToString(svg);
+  const url = URL.createObjectURL(new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' }));
+
+  try {
+    const img = await loadImage(url);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(width * scale);
+    canvas.height = Math.round(height * scale);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas 2D コンテキストを取得できませんでした');
+    // 不透明背景を保証（SVG 先頭の背景 rect と同色）
+    ctx.fillStyle = light ? '#ffffff' : '#1e1e1e';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.scale(scale, scale);
+    ctx.drawImage(img, 0, 0);
+
+    const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
+    if (blob) downloadBlob(blob, `${project.name}.png`);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/** ガントを別ウィンドウで開いて印刷ダイアログを表示する */
+export function printGantt(
+  project: Project,
+  light: boolean,
+  viewMode: 'day' | 'week' | 'month' = 'day',
+  showCriticalPath = false,
+  dateRange?: ExportDateRange,
+): void {
+  const svg = buildGanttSvg(project, light, viewMode, showCriticalPath, dateRange);
+  const svgString = new XMLSerializer().serializeToString(svg);
+  const win = window.open('', '_blank');
+  if (!win) {
+    alert('印刷ウィンドウを開けませんでした。ポップアップを許可してください。');
+    return;
+  }
+  const bg = light ? '#ffffff' : '#1e1e1e';
+  win.document.write(
+    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${project.name}</title>` +
+    `<style>@page{margin:10mm;}html,body{margin:0;background:${bg};}svg{max-width:100%;height:auto;display:block;}</style>` +
+    `</head><body>${svgString}</body></html>`
+  );
+  win.document.close();
+  win.focus();
+  setTimeout(() => {
+    try { win.print(); } catch { /* ユーザーが手動で印刷 */ }
+  }, 300);
 }
 
 function downloadBlob(blob: Blob, filename: string): void {
@@ -820,7 +965,21 @@ export function validateProject(obj: any): obj is Project {
     if (typeof t.progress !== 'number') return false;
     if (typeof t.collapsed !== 'boolean') return false;
     if (t.assignee !== undefined && typeof t.assignee !== 'string') return false;
-    if (t.dependencies !== undefined && (!Array.isArray(t.dependencies) || !t.dependencies.every((d: any) => typeof d === 'string'))) return false;
+    if (t.notes !== undefined && typeof t.notes !== 'string') return false;
+    if (t.color !== undefined && typeof t.color !== 'string') return false;
+    if (t.dependencies !== undefined && (!Array.isArray(t.dependencies) || !t.dependencies.every((d: any) =>
+      typeof d === 'string' ||
+      (d && typeof d === 'object' && typeof d.id === 'string' &&
+        ['FS', 'SS', 'FF', 'SF'].includes(d.type) && typeof d.lag === 'number')
+    ))) return false;
+  }
+
+  if (obj.autoSchedule !== undefined && typeof obj.autoSchedule !== 'boolean') return false;
+  if (obj.baseline !== undefined) {
+    if (!obj.baseline || typeof obj.baseline !== 'object' || Array.isArray(obj.baseline)) return false;
+    for (const b of Object.values(obj.baseline) as any[]) {
+      if (!b || typeof b.startDate !== 'string' || typeof b.endDate !== 'string') return false;
+    }
   }
 
   // Structural integrity — duplicate ids, dangling parents, or parent cycles

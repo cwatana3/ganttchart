@@ -1,8 +1,11 @@
 import { useState } from 'react';
 import { useProject } from '../../store/ProjectContext';
+import { japaneseHolidays } from '../../utils/jpHolidays';
 import styles from './CalendarSettings.module.css';
 
 const DAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
+const CURRENT_YEAR = new Date().getFullYear();
+const YEAR_OPTIONS = Array.from({ length: 7 }, (_, i) => CURRENT_YEAR + i);
 
 interface CalendarSettingsProps {
   onClose: () => void;
@@ -12,6 +15,7 @@ export function CalendarSettings({ onClose }: CalendarSettingsProps) {
   const { project, dispatch } = useProject();
   const { calendar } = project;
   const [newHoliday, setNewHoliday] = useState('');
+  const [holidayYear, setHolidayYear] = useState(CURRENT_YEAR);
 
   const toggleDay = (day: number) => {
     const workingDays = calendar.workingDays.includes(day)
@@ -34,6 +38,21 @@ export function CalendarSettings({ onClose }: CalendarSettingsProps) {
     dispatch({
       type: 'SET_CALENDAR',
       calendar: { ...calendar, holidays: calendar.holidays.filter(h => h !== date) },
+    });
+  };
+
+  const addJapaneseHolidays = () => {
+    const existing = new Set(calendar.holidays);
+    const additions = japaneseHolidays(holidayYear)
+      .map(h => h.date)
+      .filter(d => !existing.has(d));
+    if (additions.length === 0) {
+      alert(`${holidayYear}年の祝日はすべて登録済みです。`);
+      return;
+    }
+    dispatch({
+      type: 'SET_CALENDAR',
+      calendar: { ...calendar, holidays: [...calendar.holidays, ...additions].sort() },
     });
   };
 
@@ -75,6 +94,20 @@ export function CalendarSettings({ onClose }: CalendarSettingsProps) {
               onChange={e => setNewHoliday(e.target.value)}
             />
             <button className={styles.addButton} onClick={addHoliday}>追加</button>
+          </div>
+          <div className={styles.addHolidayRow}>
+            <select
+              className={styles.dateInput}
+              value={holidayYear}
+              onChange={e => setHolidayYear(Number(e.target.value))}
+            >
+              {YEAR_OPTIONS.map(y => (
+                <option key={y} value={y}>{y}年</option>
+              ))}
+            </select>
+            <button className={styles.addButton} onClick={addJapaneseHolidays}>
+              🎌 日本の祝日を一括追加
+            </button>
           </div>
         </div>
 

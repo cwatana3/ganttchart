@@ -1,8 +1,12 @@
 import { useMemo, useCallback, useState, useEffect, useRef } from 'react';
 import { useProject } from '../../store/ProjectContext';
-import { getVisibleTasks, checkCircularDependency } from '../../utils/taskTree';
+import { getFilteredVisibleTasks, checkCircularDependency } from '../../utils/taskTree';
+import { depRefs, depIds, toDepRef, formatDepRef } from '../../utils/deps';
+import { isDepViolated, criticalTaskIds } from '../../utils/schedule';
+import { darken } from '../../utils/color';
 import { toDate, fromDate, addWorkingDays, countWorkingDays } from '../../utils/calendar';
 import { addDays, differenceInCalendarDays } from 'date-fns';
+import type { Task } from '../../types';
 import styles from './GanttView.module.css';
 
 const ROW_HEIGHT = 34;
@@ -28,11 +32,16 @@ interface GanttViewProps {
   svgRef: React.RefObject<SVGSVGElement>;
   wrapperRef: React.RefObject<HTMLDivElement>;
   scrollRef: React.RefObject<HTMLDivElement>;
+  scrollToTodayRef?: React.MutableRefObject<(() => void) | null>;
 }
 
-export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
-  const { project, dispatch, viewMode, selectedTaskIds } = useProject();
-  const visibleTasks = getVisibleTasks(project.tasks);
+export function GanttView({ svgRef, wrapperRef, scrollRef, scrollToTodayRef }: GanttViewProps) {
+  const { project, dispatch, viewMode, selectedTaskIds, showCriticalPath, filterText } = useProject();
+  const visibleTasks = getFilteredVisibleTasks(project.tasks, filterText);
+  const criticalIds = useMemo(
+    () => (showCriticalPath ? criticalTaskIds(project.tasks, project.calendar) : new Set<string>()),
+    [showCriticalPath, project.tasks, project.calendar]
+  );
   const [isDragging, setIsDragging] = useState(false);
   const [linkingState, setLinkingState] = useState<{ fromTaskId: string; startX: number; startY: number; currentX: number; currentY: number } | null>(null);
   const [renderX, setRenderX] = useState(0);
@@ -114,6 +123,19 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
 
   const todayStr = fromDate(new Date());
 
+  // Expose "scroll to today" to the toolbar
+  useEffect(() => {
+    if (!scrollToTodayRef) return;
+    scrollToTodayRef.current = () => {
+      const el = scrollRef.current;
+      if (!el) return;
+      el.scrollTo({ left: Math.max(0, getX(todayStr) - el.clientWidth / 3), behavior: 'smooth' });
+    };
+    return () => {
+      scrollToTodayRef.current = null;
+    };
+  }, [scrollToTodayRef, getX, todayStr]);
+
   // Sync horizontal scroll between header and bars
   useEffect(() => {
     const scrollEl = scrollRef.current;
@@ -159,6 +181,12 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
     setIsDragging(true);
   };
 
+  const handleDependencyClick = (succ: Task, predTask: Task) => {
+    if (!confirm(`依存関係「${predTask.name}」→「${succ.name}」を削除しますか？`)) return;
+    const newDeps = (succ.dependencies ?? []).filter(d => toDepRef(d).id !== predTask.id);
+    dispatch({ type: 'UPDATE_TASK', id: succ.id, changes: { dependencies: newDeps } });
+  };
+
   const handleResizeMouseDown = (e: React.MouseEvent, taskId: string, startDate: string, endDate: string, duration: number) => {
     handleBarMouseDown(e, taskId, startDate, endDate, duration, 'resize');
   };
@@ -196,7 +224,7 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
             const successorTask = project.tasks.find(t => t.id === toTaskId);
             if (successorTask) {
               const currentDeps = successorTask.dependencies || [];
-              if (!currentDeps.includes(linkingState.fromTaskId)) {
+              if (!depIds(successorTask).includes(linkingState.fromTaskId)) {
                 const isCircular = checkCircularDependency(toTaskId, linkingState.fromTaskId, project.tasks);
                 if (!isCircular) {
                   dispatch({
@@ -499,6 +527,17 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
             >
               <path d="M 0 0 L 6 3 L 0 6 z" fill="var(--accent-color)" opacity="0.75" />
             </marker>
+            <marker
+              id="dependency-arrow-violated"
+              viewBox="0 0 6 6"
+              refX="6"
+              refY="3"
+              markerWidth="6"
+              markerHeight="6"
+              orient="auto"
+            >
+              <path d="M 0 0 L 6 3 L 0 6 z" fill="#ef4444" opacity="0.9" />
+            </marker>
           </defs>
 
           {/* Weekend background columns */}
@@ -537,17 +576,15 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
 
           {/* Dependency connection lines */}
           {visibleTasks.flatMap((task, succIdx) => {
-            if (!task.dependencies || task.dependencies.length === 0) return [];
-            
-            return task.dependencies.map((predId, depIdx) => {
-              const predIdx = visibleTasks.findIndex(t => t.id === predId);
+            return depRefs(task).map((ref, depIdx) => {
+              const predIdx = visibleTasks.findIndex(t => t.id === ref.id);
               if (predIdx === -1) return null;
-              
+
               const predTask = visibleTasks[predIdx];
-              const predX = getX(predTask.endDate);
+              const predX = ref.type[0] === 'F' ? getX(predTask.endDate) : getX(predTask.startDate);
               const predY = predIdx * ROW_HEIGHT + BAR_Y_OFFSET + BAR_HEIGHT / 2;
-              
-              const succX = getX(task.startDate);
+
+              const succX = ref.type[1] === 'S' ? getX(task.startDate) : getX(task.endDate);
               const succY = succIdx * ROW_HEIGHT + BAR_Y_OFFSET + BAR_HEIGHT / 2;
               
               const startX = predX;
@@ -579,15 +616,50 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
                 ].join(' ');
               }
               
+              const violated = isDepViolated(task, predTask, ref, project.calendar);
+              const refLabel = formatDepRef(ref, project.tasks);
+              const tooltip = `「${predTask.name}」→「${task.name}」(${refLabel})${violated ? ' ⚠ 依存制約違反' : ''}\nクリックで削除`;
+
               return (
-                <polyline
-                  key={`dep-${predTask.id}-${task.id}-${depIdx}`}
-                  points={points}
-                  className={styles.dependencyLine}
-                  markerEnd="url(#dependency-arrow)"
-                />
+                <g key={`dep-${predTask.id}-${task.id}-${depIdx}`} className={styles.depGroup}>
+                  <polyline
+                    points={points}
+                    className={`${styles.dependencyLine} ${violated ? styles.dependencyLineViolated : ''}`}
+                    markerEnd={violated ? 'url(#dependency-arrow-violated)' : 'url(#dependency-arrow)'}
+                  />
+                  <polyline
+                    points={points}
+                    className={styles.depHitArea}
+                    onClick={() => handleDependencyClick(task, predTask)}
+                  >
+                    <title>{tooltip}</title>
+                  </polyline>
+                </g>
               );
             });
+          })}
+
+          {/* Baseline (planned) bars — drawn beneath each task bar */}
+          {project.baseline && visibleTasks.map((task, i) => {
+            const base = project.baseline![task.id];
+            if (!base) return null;
+            const by = i * ROW_HEIGHT + BAR_Y_OFFSET + BAR_HEIGHT + 2;
+            const bx1 = getX(base.startDate);
+            const bx2 = getX(base.endDate);
+            const bw = Math.max(3, bx2 - bx1);
+            return (
+              <rect
+                key={`base-${task.id}`}
+                x={bx1}
+                y={by}
+                width={bw}
+                height={3}
+                rx={1.5}
+                className={styles.baselineBar}
+              >
+                <title>基準線: {base.startDate} 〜 {base.endDate}</title>
+              </rect>
+            );
           })}
 
           {/* Temporary linking line */}
@@ -626,6 +698,8 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
             }
 
             const hasChildren = project.tasks.some(t => t.parentId === task.id);
+            const isCritical = criticalIds.has(task.id);
+            const criticalStyle = isCritical ? { stroke: '#e11d48', strokeWidth: 2.5 } : {};
 
             if (task.isMilestone) {
               const cx = x1 + colWidth / 2;
@@ -642,7 +716,13 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
                   data-task-id={task.id}
                   points={points}
                   className={styles.milestoneDiamond}
-                  style={{ cursor: isDraggedOrMovingSelected ? 'grabbing' : 'grab', opacity: isDraggedOrMovingSelected ? 0.6 : 1 }}
+                  style={{
+                    cursor: isDraggedOrMovingSelected ? 'grabbing' : 'grab',
+                    opacity: isDraggedOrMovingSelected ? 0.6 : 1,
+                    fill: task.color ?? undefined,
+                    stroke: task.color ? darken(task.color, 0.7) : undefined,
+                    ...criticalStyle,
+                  }}
                   onMouseDown={(e) => handleMoveMouseDown(e, task.id, task.startDate, task.endDate, task.duration)}
                 />
               );
@@ -667,6 +747,7 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
                      style={{
                        cursor: isDraggedOrMovingSelected ? 'grabbing' : 'grab',
                        opacity: isDraggedOrMovingSelected ? 0.6 : 1,
+                       ...criticalStyle,
                      }}
                      onMouseDown={(e) => handleMoveMouseDown(e, task.id, task.startDate, task.endDate, task.duration)}
                   />
@@ -683,6 +764,8 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
               );
             }
 
+            const progressW = barWidth * Math.max(0, Math.min(100, task.progress)) / 100;
+
             return (
               <g key={task.id} data-task-id={task.id}>
                 <rect
@@ -697,9 +780,23 @@ export function GanttView({ svgRef, wrapperRef, scrollRef }: GanttViewProps) {
                     cursor: isDraggedOrMovingSelected ? (isResizing ? 'ew-resize' : 'grabbing') : 'grab',
                     opacity: isDraggedOrMovingSelected ? 0.6 : 1,
                     transition: isDraggedOrMovingSelected ? 'none' : 'opacity 0.1s',
+                    fill: task.color ?? undefined,
+                    stroke: task.color ? darken(task.color, 0.7) : undefined,
+                    ...criticalStyle,
                   }}
                   onMouseDown={(e) => handleMoveMouseDown(e, task.id, task.startDate, task.endDate, task.duration)}
                 />
+                {progressW > 0 && (
+                  <rect
+                    x={x1}
+                    y={y}
+                    width={progressW}
+                    height={BAR_HEIGHT}
+                    rx={2}
+                    ry={2}
+                    className={styles.progressFill}
+                  />
+                )}
                 <rect
                   x={x1 + barWidth - RESIZE_HANDLE_WIDTH}
                   y={y}
